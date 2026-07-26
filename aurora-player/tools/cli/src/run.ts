@@ -26,6 +26,9 @@ Usage:
   aurora review due|grade ...                Review due cards (FSRS)
   aurora translate <text> --to <lang>        Translate text (LLM, offline default)
   aurora explain grammar|word ...            Explain grammar / a word (LLM)
+  aurora plugins list                        List registered plugins
+  aurora transcribe <mediaId> --lang <c>     Transcribe media (Whisper plugin)
+  aurora export anki [--out <file>]          Export saved vocabulary (Anki TSV)
 `;
 
 /** Parses argv and dispatches. Returns a process exit code. */

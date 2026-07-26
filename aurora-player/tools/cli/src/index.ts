@@ -1,8 +1,13 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { StaticLLMProvider } from '@aurora/ai';
 import { createDefaultRegistry } from '@aurora/dictionary';
 import { FsrsScheduler } from '@aurora/learning';
+import {
+  AnkiExporterPlugin,
+  PluginRegistry,
+  WhisperPlugin,
+} from '@aurora/plugins';
 import {
   openLearningDatabase,
   SqliteCacheRepository,
@@ -11,6 +16,7 @@ import {
 } from '@aurora/storage';
 import { isAiCommand, runAi, type AiDeps } from './ai.js';
 import { isLearnCommand, runLearn, type LearnDeps } from './learn.js';
+import { isPluginsCommand, runPlugins, type PluginsDeps } from './plugins.js';
 import { run, type CliIO } from './run.js';
 
 // Composition root: bind the CLI to real Node I/O and concrete adapters, then
@@ -54,6 +60,30 @@ if (isLearnCommand(argv[0])) {
     now: () => Date.now(),
   };
   runAi(argv, io, deps)
+    .then((code) => {
+      db.close();
+      process.exit(code);
+    })
+    .catch((cause: unknown) => {
+      db.close();
+      io.writeError(`error: ${(cause as Error).message}\n`);
+      process.exit(1);
+    });
+} else if (isPluginsCommand(argv[0])) {
+  const db = openLearningDatabase(process.env.AURORA_DB ?? 'aurora.db');
+  // Assemble the plugin registry from the bundled offline plugins only — no
+  // model, no network, no key (rules §C.12/§E). A real ASR engine registers here
+  // off-CI from whisper/*.example.ts. `activateAll` (in runPlugins) isolates any
+  // plugin that fails so the rest stay usable.
+  const registry = new PluginRegistry({ logger: (m) => io.writeError(`${m}\n`) })
+    .register(new WhisperPlugin())
+    .register(new AnkiExporterPlugin());
+  const deps: PluginsDeps = {
+    registry,
+    vocab: new SqliteVocabularyRepository(db),
+    writeFile: (path, data) => writeFileSync(path, data, 'utf8'),
+  };
+  runPlugins(argv, io, deps)
     .then((code) => {
       db.close();
       process.exit(code);

@@ -72,6 +72,17 @@ export default tseslint.config(
               onlyDependOnLibsWithTags: ['layer:kernel', 'layer:domain'],
             },
             {
+              // Plugin core (Layer 4): the plugin protocol + registry + bundled
+              // plugins (offline Whisper `ISubtitleProvider`, Anki `IExporter`).
+              // Like the presentation layer it MUST compose multiple domain
+              // packages (subtitle, and any capability port it implements) — so
+              // it depends on kernel + domain, never on another plugin package
+              // or a platform library (the latter is still barred by its
+              // `scope:core` tag below). Additive: existing tiers are untouched.
+              sourceTag: 'layer:plugin',
+              onlyDependOnLibsWithTags: ['layer:kernel', 'layer:domain'],
+            },
+            {
               sourceTag: 'scope:core',
               onlyDependOnLibsWithTags: ['scope:core'],
               // Platform libraries are forbidden inside the pure-TS core.

@@ -107,6 +107,15 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
+  packages/plugins:
+    dependencies:
+      '@aurora/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@aurora/subtitle':
+        specifier: workspace:*
+        version: link:../subtitle
+
   packages/presentation:
     dependencies:
       '@aurora/domain':
@@ -161,6 +170,9 @@ importers:
       '@aurora/player-api':
         specifier: workspace:*
         version: link:../../packages/player-api
+      '@aurora/plugins':
+        specifier: workspace:*
+        version: link:../../packages/plugins
       '@aurora/storage':
         specifier: workspace:*
         version: link:../../packages/storage

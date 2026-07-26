@@ -32,6 +32,7 @@ Usage:
   aurora import <manifest.json> [--out <f>]  Import media + subtitle tracks
   aurora consent show|grant|revoke ...       Manage data-use consent (privacy)
   aurora fetch <ref>                          A consent-gated online capability
+  aurora telemetry status                     Show opt-in analytics status (gated)
   (plugin commands accept --profile <play|ios|desktop|sideload>, default desktop,
    to gate out store-forbidden capabilities such as YouTube import on Play)
 `;

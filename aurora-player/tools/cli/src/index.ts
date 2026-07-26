@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { StaticLLMProvider } from '@aurora/ai';
 import { createDefaultRegistry } from '@aurora/dictionary';
 import { FsrsScheduler } from '@aurora/learning';
+import { ConsentGatedTelemetry, InMemoryTelemetrySink } from '@aurora/privacy';
 import {
   AnkiExporterPlugin,
   MediaImporterPlugin,
@@ -20,6 +21,7 @@ import { isAiCommand, runAi, type AiDeps } from './ai.js';
 import { isConsentCommand, runConsent, type ConsentDeps } from './consent.js';
 import { isLearnCommand, runLearn, type LearnDeps } from './learn.js';
 import { isPluginsCommand, runPlugins, type PluginsDeps } from './plugins.js';
+import { isTelemetryCommand, runTelemetry, type TelemetryDeps } from './telemetry.js';
 import { run, type CliIO } from './run.js';
 
 // Composition root: bind the CLI to real Node I/O and concrete adapters, then
@@ -82,6 +84,29 @@ if (isLearnCommand(argv[0])) {
     now: () => Date.now(),
   };
   runConsent(argv, io, deps)
+    .then((code) => {
+      db.close();
+      process.exit(code);
+    })
+    .catch((cause: unknown) => {
+      db.close();
+      io.writeError(`error: ${(cause as Error).message}\n`);
+      process.exit(1);
+    });
+} else if (isTelemetryCommand(argv[0])) {
+  const db = openLearningDatabase(process.env.AURORA_DB ?? 'aurora.db');
+  // Opt-in analytics (plan/12): the in-memory sink is the default offline
+  // backend; a real HTTP/analytics sink is injected here off-CI (reads its
+  // DSN/token from the environment, rule §E — see telemetry/http-*.example.ts).
+  // ConsentGatedTelemetry wraps whichever sink so emission stays opt-in: points
+  // are dropped until the user grants `telemetry` consent.
+  const consent = new SqliteConsentRepository(db);
+  const deps: TelemetryDeps = {
+    consent,
+    telemetry: new ConsentGatedTelemetry(new InMemoryTelemetrySink(), consent),
+    now: () => Date.now(),
+  };
+  runTelemetry(argv, io, deps)
     .then((code) => {
       db.close();
       process.exit(code);

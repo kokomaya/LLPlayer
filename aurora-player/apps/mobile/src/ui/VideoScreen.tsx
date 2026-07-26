@@ -17,9 +17,13 @@
 // here — that all sits in the Node-tested core.
 //
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Video, { ViewType, type VideoRef } from 'react-native-video';
-import { createPlayerRuntime, type PlayerRuntime } from '../index.js';
+import {
+  createPlayerRuntime,
+  type LearningControls,
+  type PlayerRuntime,
+} from '../index.js';
 import type {
   NativeVideoCallbacks,
   NativeVideoSurface,
@@ -32,6 +36,13 @@ import type { OverlayViewState } from '@aurora/presentation';
 export interface VideoScreenProps {
   readonly media: MediaSource;
   readonly document: SubtitleDocument;
+  /**
+   * Sink for copied subtitle text (Epic A · 复制字幕). Wire this to the
+   * clipboard on device, e.g. `expo-clipboard`:
+   *   onCopyText={(t) => { void Clipboard.setStringAsync(t); }}
+   * Left as a prop so this reference file needs no clipboard dependency.
+   */
+  readonly onCopyText?: (text: string) => void;
 }
 
 /**
@@ -66,12 +77,19 @@ const surfaceFromRef = (
   },
 });
 
-export function VideoScreen({ media, document }: VideoScreenProps): React.JSX.Element {
+export function VideoScreen({
+  media,
+  document,
+  onCopyText,
+}: VideoScreenProps): React.JSX.Element {
   const videoRef = useRef<VideoRef | null>(null);
   const callbacksRef = useRef<NativeVideoCallbacks | null>(null);
   const [uri, setUri] = useState<string | null>(null);
   const [overlay, setOverlay] = useState<OverlayViewState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Kept in a ref so the control-bar handlers act on the current playhead
+  // without re-rendering on every position tick.
+  const controlsRef = useRef<LearningControls | null>(null);
 
   const surface = useMemo(
     () => surfaceFromRef(videoRef, setUri, callbacksRef),
@@ -81,6 +99,7 @@ export function VideoScreen({ media, document }: VideoScreenProps): React.JSX.El
   useEffect(() => {
     setError(null);
     const runtime: PlayerRuntime = createPlayerRuntime({ surface, media, document });
+    controlsRef.current = runtime.controls;
     const off = runtime.presenter.onChange(setOverlay);
     // Drive playback from the player's own lifecycle rather than blindly calling
     // play() after open(): auto-play only once the media is actually `ready`, and
@@ -97,9 +116,17 @@ export function VideoScreen({ media, document }: VideoScreenProps): React.JSX.El
     return () => {
       off();
       offEvents();
+      controlsRef.current = null;
       runtime.dispose();
     };
   }, [surface, media, document]);
+
+  const copyActiveLine = (): void => {
+    const text = controlsRef.current?.copyActiveLineText({ withTranslation: true });
+    if (text !== null && text !== undefined) {
+      onCopyText?.(text);
+    }
+  };
 
   const cb = callbacksRef.current;
   return (
@@ -122,6 +149,25 @@ export function VideoScreen({ media, document }: VideoScreenProps): React.JSX.El
         />
       )}
       <SubtitleOverlay state={overlay} />
+      {/* Epic A learning gestures — thin buttons that only call
+          `runtime.controls`; all logic lives in the Node-tested core. */}
+      <View style={styles.controlBar} pointerEvents="box-none">
+        <TouchableOpacity
+          style={styles.controlButton}
+          onPress={() => controlsRef.current?.stepWord('prev')}
+        >
+          <Text style={styles.controlLabel}>◀ 词</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.controlButton} onPress={copyActiveLine}>
+          <Text style={styles.controlLabel}>复制</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.controlButton}
+          onPress={() => controlsRef.current?.stepWord('next')}
+        >
+          <Text style={styles.controlLabel}>词 ▶</Text>
+        </TouchableOpacity>
+      </View>
       {error !== null && (
         <View style={styles.errorBanner} pointerEvents="none">
           <Text style={styles.errorText}>Playback error: {error}</Text>
@@ -148,4 +194,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(180,0,0,0.85)',
   },
   errorText: { color: 'white', fontSize: 14, textAlign: 'center' },
+  controlBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 24,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  controlButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  controlLabel: { color: 'white', fontSize: 16 },
 });

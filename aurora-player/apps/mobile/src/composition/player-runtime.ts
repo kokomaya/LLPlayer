@@ -4,6 +4,7 @@ import { SubtitleOverlayPresenter } from '@aurora/presentation';
 import type { SubtitleDocument } from '@aurora/subtitle';
 import type { NativeVideoSurface } from '../adapters/native-video-surface.js';
 import { ReactNativeVideoPlayer } from '../adapters/react-native-video-player.js';
+import { createLearningControls, type LearningControls } from './learning-controls.js';
 
 export interface PlayerRuntimeDeps {
   /** The native `<Video>` surface (real on device, fake in tests). */
@@ -24,6 +25,8 @@ export interface PlayerRuntime {
   readonly player: IPlayer;
   readonly bus: EventBus;
   readonly presenter: SubtitleOverlayPresenter;
+  /** Word-step seek + subtitle-copy gestures for the UI (Epic A). */
+  readonly controls: LearningControls;
   /** Open the configured media (idle→ready). */
   open(): Promise<void>;
   /** Tear everything down. */
@@ -48,6 +51,7 @@ export const createPlayerRuntime = (deps: PlayerRuntimeDeps): PlayerRuntime => {
   const bus = new EventBus();
   const player = new ReactNativeVideoPlayer(deps.surface);
   const presenter = new SubtitleOverlayPresenter(deps.document.lines).connect(bus);
+  const controls = createLearningControls(player, deps.document);
 
   // Adapter→domain bridge: translate player events onto the bus. This is the
   // only code that couples the two; the presenter never sees the player.
@@ -75,6 +79,7 @@ export const createPlayerRuntime = (deps: PlayerRuntimeDeps): PlayerRuntime => {
     player,
     bus,
     presenter,
+    controls,
     open: () => player.open(deps.media),
     dispose: () => {
       unbridge();

@@ -14,6 +14,13 @@ export {
   type PlayerRuntimeDeps,
 } from './composition/player-runtime.js';
 
+// Epic A learning gestures (word-step seek + subtitle copy). Headless so the
+// device UI stays a thin button layer; also reachable via `runtime.controls`.
+export {
+  createLearningControls,
+  type LearningControls,
+} from './composition/learning-controls.js';
+
 // Android IPlayer adapter core + the native `<Video>` seam it drives.
 export { ReactNativeVideoPlayer } from './adapters/react-native-video-player.js';
 export type {

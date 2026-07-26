@@ -78,7 +78,22 @@ importers:
         specifier: workspace:*
         version: link:../../packages/timeline
 
+  packages/dictionary:
+    dependencies:
+      '@aurora/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/domain: {}
+
+  packages/learning:
+    dependencies:
+      '@aurora/domain':
+        specifier: workspace:*
+        version: link:../domain
+      ts-fsrs:
+        specifier: 5.4.1
+        version: 5.4.1
 
   packages/player-api:
     dependencies:
@@ -125,12 +140,21 @@ importers:
 
   tools/cli:
     dependencies:
+      '@aurora/dictionary':
+        specifier: workspace:*
+        version: link:../../packages/dictionary
       '@aurora/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@aurora/learning':
+        specifier: workspace:*
+        version: link:../../packages/learning
       '@aurora/player-api':
         specifier: workspace:*
         version: link:../../packages/player-api
+      '@aurora/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@aurora/subtitle':
         specifier: workspace:*
         version: link:../../packages/subtitle
@@ -2724,6 +2748,10 @@ packages:
     engines: {node: '>=18.12'}
     peerDependencies:
       typescript: '>=4.8.4'
+
+  ts-fsrs@5.4.1:
+    resolution: {integrity: sha512-mOp9+oexJexBTkwjg/jQI1aSUQRLIAvbimeKHLSmVdNJPwObugFNKmZkoggH5d6kZ0uaWLboP1Al1DnXAfIb9w==}
+    engines: {node: '>=20.0.0'}
 
   ts-node@10.9.1:
     resolution: {integrity: sha512-NtVysVPkxxrwFGUUxGYhfux8k78pQB3JqYBXlLRZgdGUqTO5wU/UyHop5p70iEbGhB7q5KmiZiU0Y3KlJrScEw==}
@@ -5663,6 +5691,8 @@ snapshots:
   ts-api-utils@2.5.0(typescript@5.7.2):
     dependencies:
       typescript: 5.7.2
+
+  ts-fsrs@5.4.1: {}
 
   ts-node@10.9.1(@types/node@20.19.0)(typescript@5.7.2):
     dependencies:

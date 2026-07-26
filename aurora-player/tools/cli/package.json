@@ -13,8 +13,11 @@
     }
   },
   "dependencies": {
+    "@aurora/dictionary": "workspace:*",
     "@aurora/domain": "workspace:*",
+    "@aurora/learning": "workspace:*",
     "@aurora/player-api": "workspace:*",
+    "@aurora/storage": "workspace:*",
     "@aurora/subtitle": "workspace:*",
     "@aurora/timeline": "workspace:*"
   }

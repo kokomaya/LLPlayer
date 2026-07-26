@@ -21,6 +21,9 @@ Usage:
   aurora play <file> --subs <sub> [--speed s] [--step ms]
                                              Deterministically "play" <file>,
                                              printing a frame per tick
+  aurora define <word> --lang <c>            Look up a word in the dictionary
+  aurora vocab add|list ...                  Manage saved vocabulary
+  aurora review due|grade ...                Review due cards (FSRS)
 `;
 
 /** Parses argv and dispatches. Returns a process exit code. */

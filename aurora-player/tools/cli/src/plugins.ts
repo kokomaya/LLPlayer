@@ -1,5 +1,10 @@
 import { languageCode, type LanguageCode, type VocabularyRepository } from '@aurora/domain';
-import type { ImportedMedia, PluginRegistry } from '@aurora/plugins';
+import type {
+  DistributionProfile,
+  ImportedMedia,
+  Platform,
+  PluginRegistry,
+} from '@aurora/plugins';
 import type { CliIO } from './run.js';
 
 /**
@@ -20,7 +25,42 @@ export const PLUGINS_USAGE = `Plugins:
   aurora transcribe <mediaId> --lang <c>     Transcribe media via a Whisper plugin
   aurora export anki [--out <file>]          Export saved vocabulary as Anki TSV
   aurora import <manifest.json> [--out <f>]  Import media + subtitle tracks
+
+  Add --profile <play|ios|desktop|sideload> to any command (default: desktop) to
+  gate out plugins a store build forbids (e.g. YouTube import on Play).
 `;
+
+/** Build profiles selectable from the CLI (rule ①.F.20). */
+const PLATFORMS: readonly Platform[] = ['play', 'ios', 'desktop', 'sideload'];
+
+/**
+ * Extract `--profile <platform>` (default `desktop`) from argv. The flag is left
+ * in place for the sub-parsers, which tolerate it. Returns null on a bad value
+ * so the caller can exit 2.
+ */
+const parseProfile = (
+  argv: readonly string[],
+  io: CliIO,
+): DistributionProfile | null => {
+  let platform: Platform = 'desktop';
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]!;
+    const value = arg === '--profile'
+      ? argv[i + 1]
+      : arg.startsWith('--profile=')
+        ? arg.slice('--profile='.length)
+        : undefined;
+    if (value === undefined) {
+      continue;
+    }
+    if (!PLATFORMS.includes(value as Platform)) {
+      io.writeError(`error: --profile must be one of ${PLATFORMS.join('|')}\n`);
+      return null;
+    }
+    platform = value as Platform;
+  }
+  return { platform };
+};
 
 /** True when `argv[0]` is one of the plugin subcommands. */
 export const isPluginsCommand = (command: string | undefined): boolean =>
@@ -68,14 +108,24 @@ const requireLang = (raw: string | undefined, io: CliIO): LanguageCode | null =>
   return result.value;
 };
 
-const runList = async (io: CliIO, deps: PluginsDeps): Promise<number> => {
-  const report = await deps.registry.activateAll();
+const runList = async (
+  io: CliIO,
+  deps: PluginsDeps,
+  profile: DistributionProfile,
+): Promise<number> => {
+  const report = await deps.registry.activateAll(profile);
   const failed = new Map(report.failures.map((f) => [f.pluginId, f.error.message]));
+  const excluded = new Map(report.skipped.map((s) => [s.pluginId, s.reason]));
   for (const plugin of deps.registry.discover()) {
     const caps = plugin.capabilities.join(', ');
-    const status = failed.has(plugin.id)
-      ? `failed: ${failed.get(plugin.id)}`
-      : 'active';
+    let status: string;
+    if (excluded.has(plugin.id)) {
+      status = `excluded (${profile.platform}): ${excluded.get(plugin.id)}`;
+    } else if (failed.has(plugin.id)) {
+      status = `failed: ${failed.get(plugin.id)}`;
+    } else {
+      status = 'active';
+    }
     io.write(`${plugin.id} v${plugin.version} [${caps}] ${status}\n`);
   }
   return 0;
@@ -85,6 +135,7 @@ const runTranscribe = async (
   args: readonly string[],
   io: CliIO,
   deps: PluginsDeps,
+  profile: DistributionProfile,
 ): Promise<number> => {
   const { positional, flags } = parse(args);
   const mediaId = positional[0];
@@ -96,7 +147,7 @@ const runTranscribe = async (
   if (lang === null) {
     return 2;
   }
-  await deps.registry.activateAll();
+  await deps.registry.activateAll(profile);
   const provider = deps.registry.subtitleProviders()[0];
   if (provider === undefined) {
     io.writeError('error: no subtitle provider plugin available\n');
@@ -117,13 +168,14 @@ const runExport = async (
   args: readonly string[],
   io: CliIO,
   deps: PluginsDeps,
+  profile: DistributionProfile,
 ): Promise<number> => {
   if (args[0] !== 'anki') {
     io.writeError(`error: unknown export target\n${PLUGINS_USAGE}`);
     return 2;
   }
   const { flags } = parse(args.slice(1));
-  await deps.registry.activateAll();
+  await deps.registry.activateAll(profile);
   const exporter = deps.registry.exporters().find((e) => e.id === 'anki');
   if (exporter === undefined) {
     io.writeError('error: no Anki exporter plugin available\n');
@@ -167,6 +219,7 @@ const runImport = async (
   args: readonly string[],
   io: CliIO,
   deps: PluginsDeps,
+  profile: DistributionProfile,
 ): Promise<number> => {
   const { positional, flags } = parse(args);
   const ref = positional[0];
@@ -181,7 +234,7 @@ const runImport = async (
     io.writeError(`error: cannot read "${ref}": ${(cause as Error).message}\n`);
     return 1;
   }
-  await deps.registry.activateAll();
+  await deps.registry.activateAll(profile);
   const mediaRef = { uri: ref, content };
   const importer = deps.registry
     .mediaImporters()
@@ -217,18 +270,22 @@ export const runPlugins = (
   io: CliIO,
   deps: PluginsDeps,
 ): Promise<number> => {
+  const profile = parseProfile(argv, io);
+  if (profile === null) {
+    return Promise.resolve(2);
+  }
   if (argv[0] === 'plugins') {
     if (argv[1] === 'list') {
-      return runList(io, deps);
+      return runList(io, deps, profile);
     }
     io.writeError(`error: unknown plugins subcommand\n${PLUGINS_USAGE}`);
     return Promise.resolve(2);
   }
   if (argv[0] === 'transcribe') {
-    return runTranscribe(argv.slice(1), io, deps);
+    return runTranscribe(argv.slice(1), io, deps, profile);
   }
   if (argv[0] === 'import') {
-    return runImport(argv.slice(1), io, deps);
+    return runImport(argv.slice(1), io, deps, profile);
   }
-  return runExport(argv.slice(1), io, deps);
+  return runExport(argv.slice(1), io, deps, profile);
 };

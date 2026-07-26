@@ -12,10 +12,12 @@ import {
 import {
   openLearningDatabase,
   SqliteCacheRepository,
+  SqliteConsentRepository,
   SqliteReviewRepository,
   SqliteVocabularyRepository,
 } from '@aurora/storage';
 import { isAiCommand, runAi, type AiDeps } from './ai.js';
+import { isConsentCommand, runConsent, type ConsentDeps } from './consent.js';
 import { isLearnCommand, runLearn, type LearnDeps } from './learn.js';
 import { isPluginsCommand, runPlugins, type PluginsDeps } from './plugins.js';
 import { run, type CliIO } from './run.js';
@@ -61,6 +63,25 @@ if (isLearnCommand(argv[0])) {
     now: () => Date.now(),
   };
   runAi(argv, io, deps)
+    .then((code) => {
+      db.close();
+      process.exit(code);
+    })
+    .catch((cause: unknown) => {
+      db.close();
+      io.writeError(`error: ${(cause as Error).message}\n`);
+      process.exit(1);
+    });
+} else if (isConsentCommand(argv[0])) {
+  const db = openLearningDatabase(process.env.AURORA_DB ?? 'aurora.db');
+  // Persist consent in SQLite (consent table, migration v3). The gated `fetch`
+  // demo's real online binding is injected here off-CI (reads auth from the
+  // environment, rule §E); the default stand-in keeps the CLI offline.
+  const deps: ConsentDeps = {
+    consent: new SqliteConsentRepository(db),
+    now: () => Date.now(),
+  };
+  runConsent(argv, io, deps)
     .then((code) => {
       db.close();
       process.exit(code);

@@ -30,6 +30,8 @@ Usage:
   aurora transcribe <mediaId> --lang <c>     Transcribe media (Whisper plugin)
   aurora export anki [--out <file>]          Export saved vocabulary (Anki TSV)
   aurora import <manifest.json> [--out <f>]  Import media + subtitle tracks
+  aurora consent show|grant|revoke ...       Manage data-use consent (privacy)
+  aurora fetch <ref>                          A consent-gated online capability
   (plugin commands accept --profile <play|ios|desktop|sideload>, default desktop,
    to gate out store-forbidden capabilities such as YouTube import on Play)
 `;

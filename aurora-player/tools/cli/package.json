@@ -19,6 +19,7 @@
     "@aurora/learning": "workspace:*",
     "@aurora/player-api": "workspace:*",
     "@aurora/plugins": "workspace:*",
+    "@aurora/privacy": "workspace:*",
     "@aurora/storage": "workspace:*",
     "@aurora/subtitle": "workspace:*",
     "@aurora/timeline": "workspace:*"

@@ -1,5 +1,6 @@
 import { DataSubjectService, RetentionService } from '@aurora/privacy';
 import type { DataSubjectRepositories, RetentionPolicy } from '@aurora/privacy';
+import type { DataExport } from '@aurora/domain';
 import type { CliIO } from './run.js';
 
 /** Days → milliseconds, so `--older-than` reads in human units. */
@@ -25,6 +26,8 @@ export const DATA_USAGE = `Data (your data · privacy):
   aurora data prune --older-than <days>      Delete learning data past a retention
                     [--dry-run]              window (words + their cards; --dry-run
                                              previews without deleting)
+  aurora data import <file> [--replace]      Import a JSON snapshot back (merge by
+                                             default; --replace overwrites local)
 `;
 
 /** True when `argv[0]` is the data-subject command. */
@@ -142,6 +145,75 @@ const runPrune = async (
   return 0;
 };
 
+interface ImportArgs {
+  readonly file: string | undefined;
+  readonly replace: boolean;
+}
+
+/** Read the positional `<file>` and the `--replace` flag. */
+const parseImport = (args: readonly string[]): ImportArgs => {
+  let file: string | undefined;
+  let replace = false;
+  for (const arg of args) {
+    if (arg === '--replace') {
+      replace = true;
+    } else if (!arg.startsWith('--')) {
+      file ??= arg;
+    }
+  }
+  return { file, replace };
+};
+
+/**
+ * `data import`: read a JSON {@link DataExport} snapshot and write it back via
+ * {@link DataSubjectService} — the other half of data portability. Merges by
+ * default (idempotent upsert); `--replace` erases local data first. Reading is
+ * the injected `io.readFile` (DIP); a missing file, invalid JSON, or an
+ * unsupported version is a friendly error with exit 2. Only the user's own data
+ * fields are written — never credentials/config (rule ①.E).
+ */
+const runImport = async (
+  args: readonly string[],
+  io: CliIO,
+  deps: DataDeps,
+): Promise<number> => {
+  const { file, replace } = parseImport(args);
+  if (file === undefined) {
+    io.writeError('error: missing <file>\n');
+    return 2;
+  }
+  let raw: string;
+  try {
+    raw = io.readFile(file);
+  } catch (cause) {
+    io.writeError(`error: cannot read "${file}": ${(cause as Error).message}\n`);
+    return 2;
+  }
+  let snapshot: DataExport;
+  try {
+    snapshot = JSON.parse(raw) as DataExport;
+  } catch {
+    io.writeError(`error: "${file}" is not valid JSON\n`);
+    return 2;
+  }
+  let report;
+  try {
+    report = await new DataSubjectService(deps.repos).import(snapshot, {
+      replace,
+    });
+  } catch (cause) {
+    io.writeError(`error: ${(cause as Error).message}\n`);
+    return 2;
+  }
+  const verb = report.replaced ? 'replaced with' : 'imported';
+  io.write(
+    `${verb} ${report.importedVocab} word(s), ` +
+      `${report.importedReviews} card(s), ` +
+      `${report.importedConsent} consent record(s)\n`,
+  );
+  return 0;
+};
+
 /** Dispatch a data subcommand. Assumes {@link isDataCommand}(argv[0]). */
 export const runData = (
   argv: readonly string[],
@@ -156,6 +228,9 @@ export const runData = (
   }
   if (argv[1] === 'prune') {
     return runPrune(argv.slice(2), io, deps);
+  }
+  if (argv[1] === 'import') {
+    return runImport(argv.slice(2), io, deps);
   }
   io.writeError(`error: unknown data subcommand\n${DATA_USAGE}`);
   return Promise.resolve(2);

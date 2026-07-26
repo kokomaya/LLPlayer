@@ -1,6 +1,7 @@
 import type { DataExport } from '@aurora/domain';
 import { runDataSubjectContract } from '@aurora/privacy/dsar-contract';
 import { runRetentionContract } from '@aurora/privacy/retention-contract';
+import { runDataImportContract } from '@aurora/privacy/import-contract';
 import type {
   DataSubjectRepositories,
   RetentionRepositories,
@@ -76,6 +77,33 @@ runRetentionContract({
   dispose: (repos) => retentionDbs.get(repos)?.close(),
 });
 
+// The data-import (data portability · re-import) contract runs against the SAME
+// real adapters — the LSP proof for importing snapshots on both backends.
+runDataImportContract({
+  name: 'real in-memory adapters',
+  makeRepos: (): DataSubjectRepositories => ({
+    vocab: new InMemoryVocabularyRepository(),
+    reviews: new InMemoryReviewRepository(),
+    consent: new InMemoryConsentRepository(),
+  }),
+});
+
+const importDbs = new WeakMap<DataSubjectRepositories, { close: () => void }>();
+runDataImportContract({
+  name: 'real SQLite adapters',
+  makeRepos: (): DataSubjectRepositories => {
+    const db = openLearningDatabase();
+    const repos: DataSubjectRepositories = {
+      vocab: new SqliteVocabularyRepository(db),
+      reviews: new SqliteReviewRepository(db),
+      consent: new SqliteConsentRepository(db),
+    };
+    importDbs.set(repos, db);
+    return repos;
+  },
+  dispose: (repos) => importDbs.get(repos)?.close(),
+});
+
 const AT = 1_700_000_000_000;
 const DAY = 86_400_000;
 
@@ -108,8 +136,12 @@ const makeHarness = (): {
     let out = '';
     let err = '';
     const io: CliIO = {
-      readFile: () => {
-        throw new Error('unused');
+      readFile: (path) => {
+        const content = files.get(path);
+        if (content === undefined) {
+          throw new Error(`no such file: ${path}`);
+        }
+        return content;
       },
       write: (t) => {
         out += t;
@@ -214,6 +246,123 @@ describe('aurora data slice', () => {
     const r = await makeHarness().invoke(['data', 'prune']);
     expect(r.code).toBe(2);
     expect(r.err).toContain('--older-than');
+  });
+
+  it('round-trips: export to a file, erase, then import it back', async () => {
+    const { repos, invoke } = makeHarness();
+    await repos.vocab.upsert({
+      id: 'en:hello',
+      lemma: 'hello' as never,
+      lang: 'en' as never,
+      status: 'learning',
+      createdAt: AT,
+    });
+    await repos.consent.grant('telemetry', AT);
+
+    expect((await invoke(['data', 'export', '--out', 'snap.json'])).code).toBe(0);
+    expect((await invoke(['data', 'erase'])).code).toBe(0);
+
+    const imported = await invoke(['data', 'import', 'snap.json']);
+    expect(imported.code).toBe(0);
+    expect(imported.out).toContain('imported 1 word(s)');
+    expect(imported.out).toContain('1 consent record(s)');
+
+    const again = JSON.parse((await invoke(['data', 'export'])).out) as DataExport;
+    expect(again.vocab.map((e) => e.id)).toEqual(['en:hello']);
+    expect(again.consent).toEqual([{ use: 'telemetry', granted: true, at: AT }]);
+  });
+
+  it('imports are idempotent (same snapshot twice)', async () => {
+    const { invoke, files } = makeHarness();
+    files.set(
+      'snap.json',
+      JSON.stringify({
+        version: 1,
+        exportedAt: AT,
+        vocab: [
+          { id: 'w1', lemma: 'w1', lang: 'en', status: 'learning', createdAt: AT },
+        ],
+        reviews: [],
+        consent: [],
+      }),
+    );
+
+    expect((await invoke(['data', 'import', 'snap.json'])).code).toBe(0);
+    expect((await invoke(['data', 'import', 'snap.json'])).code).toBe(0);
+
+    const again = JSON.parse((await invoke(['data', 'export'])).out) as DataExport;
+    expect(again.vocab.map((e) => e.id)).toEqual(['w1']);
+  });
+
+  it('--replace overwrites existing data', async () => {
+    const { repos, invoke, files } = makeHarness();
+    await repos.vocab.upsert({
+      id: 'stale',
+      lemma: 'stale' as never,
+      lang: 'en' as never,
+      status: 'learning',
+      createdAt: AT,
+    });
+    files.set(
+      'snap.json',
+      JSON.stringify({
+        version: 1,
+        exportedAt: AT,
+        vocab: [
+          {
+            id: 'fresh',
+            lemma: 'fresh',
+            lang: 'en',
+            status: 'learning',
+            createdAt: AT,
+          },
+        ],
+        reviews: [],
+        consent: [],
+      }),
+    );
+
+    const r = await invoke(['data', 'import', 'snap.json', '--replace']);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('replaced with 1 word(s)');
+    expect((await repos.vocab.list()).map((v) => v.id)).toEqual(['fresh']);
+  });
+
+  it('rejects import with an unsupported version (exit 2)', async () => {
+    const { invoke, files } = makeHarness();
+    files.set(
+      'v2.json',
+      JSON.stringify({
+        version: 2,
+        exportedAt: AT,
+        vocab: [],
+        reviews: [],
+        consent: [],
+      }),
+    );
+    const r = await invoke(['data', 'import', 'v2.json']);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('version');
+  });
+
+  it('rejects import of invalid JSON (exit 2)', async () => {
+    const { invoke, files } = makeHarness();
+    files.set('bad.json', '{ not json');
+    const r = await invoke(['data', 'import', 'bad.json']);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('not valid JSON');
+  });
+
+  it('rejects import of a missing file (exit 2)', async () => {
+    const r = await makeHarness().invoke(['data', 'import', 'nope.json']);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('cannot read');
+  });
+
+  it('rejects import without a <file> (exit 2)', async () => {
+    const r = await makeHarness().invoke(['data', 'import']);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('missing <file>');
   });
 
   it('rejects an unknown data subcommand with exit 2', async () => {

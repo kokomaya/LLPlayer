@@ -13,6 +13,7 @@
     }
   },
   "dependencies": {
+    "@aurora/ai": "workspace:*",
     "@aurora/dictionary": "workspace:*",
     "@aurora/domain": "workspace:*",
     "@aurora/learning": "workspace:*",

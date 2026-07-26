@@ -78,6 +78,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/timeline
 
+  packages/ai:
+    dependencies:
+      '@aurora/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/dictionary:
     dependencies:
       '@aurora/domain':
@@ -140,6 +146,9 @@ importers:
 
   tools/cli:
     dependencies:
+      '@aurora/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@aurora/dictionary':
         specifier: workspace:*
         version: link:../../packages/dictionary

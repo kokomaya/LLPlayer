@@ -24,6 +24,8 @@ Usage:
   aurora define <word> --lang <c>            Look up a word in the dictionary
   aurora vocab add|list ...                  Manage saved vocabulary
   aurora review due|grade ...                Review due cards (FSRS)
+  aurora translate <text> --to <lang>        Translate text (LLM, offline default)
+  aurora explain grammar|word ...            Explain grammar / a word (LLM)
 `;
 
 /** Parses argv and dispatches. Returns a process exit code. */

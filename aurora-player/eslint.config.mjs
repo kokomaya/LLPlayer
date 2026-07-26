@@ -25,7 +25,14 @@ export default tseslint.config(
       '**/coverage',
       '**/node_modules',
       '**/.nx',
+      // Reference-only files kept out of the compiled/tested/linted graph:
+      //  - `*.example.ts`  : the DIP counter-example prose (packages/…)
+      //  - `*.example.tsx` : on-device React Native bindings in apps/mobile that
+      //    import `react`/`react-native`/`react-native-video` (not installed in
+      //    CI). They are validated on a device, never here — see
+      //    apps/mobile/README.md.
       '**/*.example.ts',
+      '**/*.example.tsx',
     ],
   },
   ...nx.configs['flat/base'],
@@ -55,6 +62,16 @@ export default tseslint.config(
               onlyDependOnLibsWithTags: ['layer:kernel'],
             },
             {
+              // Presentation core (Layer 3): pure-TS view-state derivation shared
+              // by every app (e.g. SubtitleOverlayPresenter). Unlike a domain
+              // package it MAY compose multiple domain packages (subtitle +
+              // timeline) — that is its job — so it depends on kernel + domain,
+              // never on another presentation package or a platform library
+              // (the latter is still barred by its `scope:core` tag below).
+              sourceTag: 'layer:presentation',
+              onlyDependOnLibsWithTags: ['layer:kernel', 'layer:domain'],
+            },
+            {
               sourceTag: 'scope:core',
               onlyDependOnLibsWithTags: ['scope:core'],
               // Platform libraries are forbidden inside the pure-TS core.
@@ -76,8 +93,16 @@ export default tseslint.config(
               onlyDependOnLibsWithTags: ['scope:core', 'scope:tool'],
             },
             {
+              // The composition root (apps/*) may depend on anything — internal
+              // libs of any tag AND platform libraries. Platform libs are what
+              // make it an app: React Native / Expo / react-native-video live
+              // ONLY here. The empty `bannedExternalImports` is deliberate and
+              // explicit — it documents that the platform-lib ban is a
+              // scope:core rule, not an app rule. `tools/boundary-check` proves
+              // the asymmetry (same lib: rejected in core, allowed in app).
               sourceTag: 'scope:app',
               onlyDependOnLibsWithTags: ['*'],
+              bannedExternalImports: [],
             },
           ],
         },

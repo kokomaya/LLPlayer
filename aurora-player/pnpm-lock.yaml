@@ -42,6 +42,42 @@ importers:
         specifier: 2.1.8
         version: 2.1.8(@types/node@20.19.0)
 
+  apps/desktop:
+    dependencies:
+      '@aurora/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@aurora/player-api':
+        specifier: workspace:*
+        version: link:../../packages/player-api
+      '@aurora/presentation':
+        specifier: workspace:*
+        version: link:../../packages/presentation
+      '@aurora/subtitle':
+        specifier: workspace:*
+        version: link:../../packages/subtitle
+      '@aurora/timeline':
+        specifier: workspace:*
+        version: link:../../packages/timeline
+
+  apps/mobile:
+    dependencies:
+      '@aurora/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@aurora/player-api':
+        specifier: workspace:*
+        version: link:../../packages/player-api
+      '@aurora/presentation':
+        specifier: workspace:*
+        version: link:../../packages/presentation
+      '@aurora/subtitle':
+        specifier: workspace:*
+        version: link:../../packages/subtitle
+      '@aurora/timeline':
+        specifier: workspace:*
+        version: link:../../packages/timeline
+
   packages/domain: {}
 
   packages/player-api:
@@ -49,6 +85,18 @@ importers:
       '@aurora/domain':
         specifier: workspace:*
         version: link:../domain
+
+  packages/presentation:
+    dependencies:
+      '@aurora/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@aurora/subtitle':
+        specifier: workspace:*
+        version: link:../subtitle
+      '@aurora/timeline':
+        specifier: workspace:*
+        version: link:../timeline
 
   packages/storage:
     dependencies:

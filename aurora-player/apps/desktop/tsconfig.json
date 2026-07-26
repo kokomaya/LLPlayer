@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  // Only the pure-TS composition root and adapter core are typechecked in CI.
+  // The on-device Tauri bindings (`src/ui/*.example.ts`, `src-tauri/**`) import
+  // `@tauri-apps/*` (not installed here) or are Rust; they are validated when
+  // running `pnpm tauri dev` on a machine with the toolchain (see README.md).
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/**/*.example.ts", "src-tauri"]
+}

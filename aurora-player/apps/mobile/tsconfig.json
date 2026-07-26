@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  // Only the pure-TS composition root, adapters and presenters are typechecked
+  // in CI. The on-device React Native bindings (`src/ui/*.example.tsx`) import
+  // libraries that are not installed here; they are typechecked on a device via
+  // the Expo/Metro toolchain (see README.md), not by this `tsc` invocation.
+  "include": ["src/**/*.ts"]
+}

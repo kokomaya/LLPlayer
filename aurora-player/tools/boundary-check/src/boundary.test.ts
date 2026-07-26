@@ -6,6 +6,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const VIOLATION = 'packages/_boundary-violation-example/violation.ts';
 const CLEAN = 'packages/domain/src/index.ts';
+// Same platform-lib import as VIOLATION, but from a `scope:app` project where it
+// is allowed — proves the guard is asymmetric (core denies, app permits).
+const APP_ALLOWED = 'apps/_boundary-app-allowed-example/allowed.ts';
 
 interface EslintRun {
   readonly failed: boolean;
@@ -52,5 +55,15 @@ describe('@nx/enforce-module-boundaries guard (reverse example)', () => {
     expect(failed, 'expected the compliant domain source to lint clean').toBe(
       false,
     );
+  });
+
+  it('PASSES lint when a scope:app package imports the SAME platform library', () => {
+    // The composition root is exempt: the ban is a scope:core rule, not a
+    // blanket one. Same `react` import that fails in core must pass here.
+    const { failed, output } = runEslint(APP_ALLOWED);
+    expect(
+      failed,
+      `expected the scope:app fixture to lint clean, got:\n${output}`,
+    ).toBe(false);
   });
 });

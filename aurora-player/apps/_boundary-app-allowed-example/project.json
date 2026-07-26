@@ -1,0 +1,8 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "_boundary-app-allowed-example",
+  "sourceRoot": "apps/_boundary-app-allowed-example",
+  "projectType": "application",
+  "tags": ["scope:app"],
+  "targets": {}
+}

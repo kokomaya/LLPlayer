@@ -1,0 +1,19 @@
+{
+  "name": "@aurora/dictionary",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./contract": {
+      "types": "./src/contract/dictionary-provider-contract.ts",
+      "default": "./src/contract/dictionary-provider-contract.ts"
+    }
+  },
+  "dependencies": {
+    "@aurora/domain": "workspace:*"
+  }
+}

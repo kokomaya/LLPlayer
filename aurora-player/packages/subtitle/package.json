@@ -1,0 +1,23 @@
+{
+  "name": "@aurora/subtitle",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./contract": {
+      "types": "./src/contract/parser-contract.ts",
+      "default": "./src/contract/parser-contract.ts"
+    },
+    "./contract/provider": {
+      "types": "./src/contract/provider-contract.ts",
+      "default": "./src/contract/provider-contract.ts"
+    }
+  },
+  "dependencies": {
+    "@aurora/domain": "workspace:*"
+  }
+}

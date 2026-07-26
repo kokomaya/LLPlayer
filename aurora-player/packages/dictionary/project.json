@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "dictionary",
+  "sourceRoot": "packages/dictionary/src",
+  "projectType": "library",
+  "tags": ["scope:core", "layer:domain"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint src --max-warnings 0",
+        "cwd": "packages/dictionary"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p tsconfig.json --noEmit",
+        "cwd": "packages/dictionary"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run",
+        "cwd": "packages/dictionary"
+      }
+    }
+  }
+}

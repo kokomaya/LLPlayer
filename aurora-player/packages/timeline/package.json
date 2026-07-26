@@ -1,0 +1,15 @@
+{
+  "name": "@aurora/timeline",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@aurora/domain": "workspace:*"
+  }
+}

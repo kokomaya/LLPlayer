@@ -1,0 +1,8 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "_boundary-violation-example",
+  "sourceRoot": "packages/_boundary-violation-example",
+  "projectType": "library",
+  "tags": ["scope:core", "layer:domain"],
+  "targets": {}
+}

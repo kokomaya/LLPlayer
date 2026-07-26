@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "subtitle",
+  "sourceRoot": "packages/subtitle/src",
+  "projectType": "library",
+  "tags": ["scope:core", "layer:domain"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "eslint src --max-warnings 0",
+        "cwd": "packages/subtitle"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -p tsconfig.json --noEmit",
+        "cwd": "packages/subtitle"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run",
+        "cwd": "packages/subtitle"
+      }
+    }
+  }
+}

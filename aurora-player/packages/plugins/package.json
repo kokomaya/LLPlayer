@@ -1,0 +1,28 @@
+{
+  "name": "@aurora/plugins",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./contract": {
+      "types": "./src/contract/exporter-contract.ts",
+      "default": "./src/contract/exporter-contract.ts"
+    },
+    "./contract/importer": {
+      "types": "./src/contract/importer-contract.ts",
+      "default": "./src/contract/importer-contract.ts"
+    },
+    "./contract/policy": {
+      "types": "./src/contract/policy-contract.ts",
+      "default": "./src/contract/policy-contract.ts"
+    }
+  },
+  "dependencies": {
+    "@aurora/domain": "workspace:*",
+    "@aurora/subtitle": "workspace:*"
+  }
+}

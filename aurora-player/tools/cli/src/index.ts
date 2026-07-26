@@ -5,6 +5,7 @@ import { createDefaultRegistry } from '@aurora/dictionary';
 import { FsrsScheduler } from '@aurora/learning';
 import {
   AnkiExporterPlugin,
+  MediaImporterPlugin,
   PluginRegistry,
   WhisperPlugin,
 } from '@aurora/plugins';
@@ -77,7 +78,8 @@ if (isLearnCommand(argv[0])) {
   // plugin that fails so the rest stay usable.
   const registry = new PluginRegistry({ logger: (m) => io.writeError(`${m}\n`) })
     .register(new WhisperPlugin())
-    .register(new AnkiExporterPlugin());
+    .register(new AnkiExporterPlugin())
+    .register(new MediaImporterPlugin());
   const deps: PluginsDeps = {
     registry,
     vocab: new SqliteVocabularyRepository(db),

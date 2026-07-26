@@ -29,6 +29,7 @@ Usage:
   aurora plugins list                        List registered plugins
   aurora transcribe <mediaId> --lang <c>     Transcribe media (Whisper plugin)
   aurora export anki [--out <file>]          Export saved vocabulary (Anki TSV)
+  aurora import <manifest.json> [--out <f>]  Import media + subtitle tracks
 `;
 
 /** Parses argv and dispatches. Returns a process exit code. */

@@ -1,5 +1,5 @@
 import { languageCode, type LanguageCode, type VocabularyRepository } from '@aurora/domain';
-import type { PluginRegistry } from '@aurora/plugins';
+import type { ImportedMedia, PluginRegistry } from '@aurora/plugins';
 import type { CliIO } from './run.js';
 
 /**
@@ -19,11 +19,15 @@ export const PLUGINS_USAGE = `Plugins:
   aurora plugins list                        List registered plugins + capabilities
   aurora transcribe <mediaId> --lang <c>     Transcribe media via a Whisper plugin
   aurora export anki [--out <file>]          Export saved vocabulary as Anki TSV
+  aurora import <manifest.json> [--out <f>]  Import media + subtitle tracks
 `;
 
 /** True when `argv[0]` is one of the plugin subcommands. */
 export const isPluginsCommand = (command: string | undefined): boolean =>
-  command === 'plugins' || command === 'transcribe' || command === 'export';
+  command === 'plugins' ||
+  command === 'transcribe' ||
+  command === 'export' ||
+  command === 'import';
 
 interface Parsed {
   readonly positional: readonly string[];
@@ -140,6 +144,73 @@ const runExport = async (
   return 0;
 };
 
+/** Render imported media as a stable, human-readable summary. */
+const formatMedia = (media: ImportedMedia): string => {
+  const lines = [`media: ${media.mediaId}`];
+  if (media.title !== undefined) {
+    lines.push(`title: ${media.title}`);
+  }
+  if (media.durationMs !== undefined) {
+    lines.push(`duration: ${media.durationMs}ms`);
+  }
+  lines.push(`tracks: ${media.subtitleTracks.length}`);
+  media.subtitleTracks.forEach((track, i) => {
+    const words = track.hasWordTimings ? 'yes' : 'no';
+    lines.push(
+      `  [${i}] ${track.meta.format} ${track.lines.length} line(s) words:${words}`,
+    );
+  });
+  return `${lines.join('\n')}\n`;
+};
+
+const runImport = async (
+  args: readonly string[],
+  io: CliIO,
+  deps: PluginsDeps,
+): Promise<number> => {
+  const { positional, flags } = parse(args);
+  const ref = positional[0];
+  if (ref === undefined) {
+    io.writeError(`error: missing <manifest.json>\n${PLUGINS_USAGE}`);
+    return 2;
+  }
+  let content: string;
+  try {
+    content = io.readFile(ref);
+  } catch (cause) {
+    io.writeError(`error: cannot read "${ref}": ${(cause as Error).message}\n`);
+    return 1;
+  }
+  await deps.registry.activateAll();
+  const mediaRef = { uri: ref, content };
+  const importer = deps.registry
+    .mediaImporters()
+    .find((im) => im.canImport(mediaRef));
+  if (importer === undefined) {
+    io.writeError(`error: no media importer can handle "${ref}"\n`);
+    return 1;
+  }
+  let media: ImportedMedia;
+  try {
+    media = await importer.import(mediaRef);
+  } catch (cause) {
+    io.writeError(`error: import failed: ${(cause as Error).message}\n`);
+    return 1;
+  }
+  const report = formatMedia(media);
+  if (flags.out !== undefined && flags.out !== '') {
+    if (deps.writeFile === undefined) {
+      io.writeError('error: --out is not supported here\n');
+      return 2;
+    }
+    deps.writeFile(flags.out, report);
+    io.write(`wrote import summary to ${flags.out}\n`);
+    return 0;
+  }
+  io.write(report);
+  return 0;
+};
+
 /** Dispatch a plugin subcommand. Assumes {@link isPluginsCommand}(argv[0]). */
 export const runPlugins = (
   argv: readonly string[],
@@ -155,6 +226,9 @@ export const runPlugins = (
   }
   if (argv[0] === 'transcribe') {
     return runTranscribe(argv.slice(1), io, deps);
+  }
+  if (argv[0] === 'import') {
+    return runImport(argv.slice(1), io, deps);
   }
   return runExport(argv.slice(1), io, deps);
 };

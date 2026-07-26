@@ -14,6 +14,10 @@
     "@aurora/player-api": "workspace:*",
     "@aurora/presentation": "workspace:*",
     "@aurora/subtitle": "workspace:*",
-    "@aurora/timeline": "workspace:*"
+    "@aurora/timeline": "workspace:*",
+    "expo": "^57.0.8",
+    "react": "18.3.1",
+    "react-native": "^0.86.0",
+    "react-native-video": "^6.19.2"
   }
 }

@@ -47,6 +47,7 @@ const fakeVocab = (): VocabularyRepository => ({
   get: () => Promise.resolve(undefined),
   list: () => Promise.resolve([]),
   delete: () => Promise.resolve(),
+  clear: () => Promise.resolve(),
 });
 
 interface Captured {

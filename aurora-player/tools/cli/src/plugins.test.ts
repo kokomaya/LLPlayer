@@ -41,6 +41,7 @@ const fakeVocab = (entries: readonly VocabEntry[]): VocabularyRepository => ({
   get: () => Promise.resolve(undefined),
   list: () => Promise.resolve(entries),
   delete: () => Promise.resolve(),
+  clear: () => Promise.resolve(),
 });
 
 class BrokenPlugin implements Plugin {

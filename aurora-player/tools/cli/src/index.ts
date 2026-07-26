@@ -19,6 +19,7 @@ import {
 } from '@aurora/storage';
 import { isAiCommand, runAi, type AiDeps } from './ai.js';
 import { isConsentCommand, runConsent, type ConsentDeps } from './consent.js';
+import { isDataCommand, runData, type DataDeps } from './data.js';
 import { isLearnCommand, runLearn, type LearnDeps } from './learn.js';
 import { isPluginsCommand, runPlugins, type PluginsDeps } from './plugins.js';
 import { isTelemetryCommand, runTelemetry, type TelemetryDeps } from './telemetry.js';
@@ -107,6 +108,30 @@ if (isLearnCommand(argv[0])) {
     now: () => Date.now(),
   };
   runTelemetry(argv, io, deps)
+    .then((code) => {
+      db.close();
+      process.exit(code);
+    })
+    .catch((cause: unknown) => {
+      db.close();
+      io.writeError(`error: ${(cause as Error).message}\n`);
+      process.exit(1);
+    });
+} else if (isDataCommand(argv[0])) {
+  const db = openLearningDatabase(process.env.AURORA_DB ?? 'aurora.db');
+  // Data-subject rights (plan/12): export/erase the user's OWN data only. The
+  // service coordinates the kernel repository ports; the snapshot carries no
+  // secrets or backend credentials (rule ①.E — enforced by the DataExport type).
+  const deps: DataDeps = {
+    repos: {
+      vocab: new SqliteVocabularyRepository(db),
+      reviews: new SqliteReviewRepository(db),
+      consent: new SqliteConsentRepository(db),
+    },
+    now: () => Date.now(),
+    writeFile: (path, data) => writeFileSync(path, data, 'utf8'),
+  };
+  runData(argv, io, deps)
     .then((code) => {
       db.close();
       process.exit(code);

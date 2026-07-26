@@ -33,6 +33,7 @@ Usage:
   aurora consent show|grant|revoke ...       Manage data-use consent (privacy)
   aurora fetch <ref>                          A consent-gated online capability
   aurora telemetry status                     Show opt-in analytics status (gated)
+  aurora data export|erase|prune ...           Export, delete, or auto-expire your data
   (plugin commands accept --profile <play|ios|desktop|sideload>, default desktop,
    to gate out store-forbidden capabilities such as YouTube import on Play)
 `;

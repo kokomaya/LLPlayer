@@ -1,0 +1,37 @@
+name: Aurora CI
+
+# Scoped to the TypeScript monorepo so it never fires for the WPF app.
+on:
+  push:
+    branches: [main]
+    paths: ['aurora-player/**']
+  pull_request:
+    paths: ['aurora-player/**']
+
+defaults:
+  run:
+    working-directory: aurora-player
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Core quality gates: lint, typecheck and tests across every project.
+      - name: Lint / Typecheck / Test
+        run: pnpm exec nx run-many -t lint typecheck test
+
+      # DIP guard: prove that a core→platform import is rejected (reverse example).
+      - name: Enforce module boundaries (reverse example)
+        run: pnpm test:boundaries

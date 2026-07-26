@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.nx/
+*.tsbuildinfo
+.DS_Store
+# transient reverse-example artifacts, if any
+**/__boundary_violation__.ts

@@ -1,0 +1,11 @@
+{
+  "text": "1. Hello World! 2. How are you 3. I'm fine 4. Thank you 5. Good bye",
+  "language": "en",
+  "segments": [
+    { "id": 0, "start": 1.0, "end": 5.0, "text": "1. Hello World!" },
+    { "id": 1, "start": 10.0, "end": 15.0, "text": "2. How are you" },
+    { "id": 2, "start": 20.0, "end": 25.0, "text": "3. I'm fine" },
+    { "id": 3, "start": 28.0, "end": 29.0, "text": "4. Thank you" },
+    { "id": 4, "start": 30.0, "end": 35.0, "text": "5. Good bye" }
+  ]
+}

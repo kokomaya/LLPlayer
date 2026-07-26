@@ -1,0 +1,60 @@
+{
+  "language": "en",
+  "segments": [
+    {
+      "start": 1.0,
+      "end": 5.0,
+      "text": "1. Hello World!",
+      "words": [
+        { "word": "1.", "start": 1.0, "end": 1.4, "score": 0.9 },
+        { "word": "Hello", "start": 1.4, "end": 3.0, "score": 0.95 },
+        { "word": "World!", "start": 3.0, "end": 5.0, "score": 0.92 }
+      ]
+    },
+    {
+      "start": 10.0,
+      "end": 15.0,
+      "text": "2. How are you",
+      "words": [
+        { "word": "2.", "start": 10.0, "end": 10.4 },
+        { "word": "How", "start": 10.4, "end": 11.5 },
+        { "word": "are", "start": 11.5, "end": 13.0 },
+        { "word": "you", "start": 13.0, "end": 15.0 }
+      ]
+    },
+    {
+      "start": 20.0,
+      "end": 25.0,
+      "text": "3. I'm fine",
+      "words": [
+        { "word": "3.", "start": 20.0, "end": 20.4 },
+        { "word": "I'm", "start": 20.4, "end": 22.0 },
+        { "word": "fine", "start": 22.0, "end": 25.0 }
+      ]
+    },
+    {
+      "start": 28.0,
+      "end": 29.0,
+      "text": "4. Thank you",
+      "words": [
+        { "word": "4.", "start": 28.0, "end": 28.2 },
+        { "word": "Thank", "start": 28.2, "end": 28.6 },
+        { "word": "you", "start": 28.6, "end": 29.0 }
+      ]
+    },
+    {
+      "start": 30.0,
+      "end": 35.0,
+      "text": "5. Good bye",
+      "words": [
+        { "word": "5.", "start": 30.0, "end": 30.4 },
+        { "word": "Good", "start": 30.4, "end": 32.0 },
+        { "word": "bye", "start": 32.0, "end": 35.0 }
+      ]
+    }
+  ],
+  "word_segments": [
+    { "word": "1.", "start": 1.0, "end": 1.4 },
+    { "word": "Hello", "start": 1.4, "end": 3.0 }
+  ]
+}

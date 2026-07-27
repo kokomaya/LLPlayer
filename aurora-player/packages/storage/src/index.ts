@@ -19,6 +19,11 @@ export { SqliteReviewRepository } from './adapters/sqlite-review-repository.js';
 export { InMemoryCacheRepository } from './adapters/in-memory-cache-repository.js';
 export { SqliteCacheRepository } from './adapters/sqlite-cache-repository.js';
 
+// Media marketplace catalog (plan · 媒体市场 C3): implements the kernel
+// ICatalogBackend port. The in-memory backend is the hermetic core impl; a real
+// HTTP backend lives in `adapters/http-catalog-backend.example.ts` (off-CI).
+export { InMemoryCatalog } from './adapters/in-memory-catalog.js';
+
 // User consent persistence (plan/12 · legal-privacy): implements the kernel
 // ConsentRepository port over memory / SQLite (consent table, migration v3).
 export { InMemoryConsentRepository } from './adapters/in-memory-consent-repository.js';

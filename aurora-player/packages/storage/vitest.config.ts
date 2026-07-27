@@ -8,7 +8,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts', 'src/index.ts', 'src/contract/**'],
+      // index (barrel), reusable contracts, and online `.example` backends
+      // (need network + credentials) are excluded; they are validated by the
+      // adapters that run the contract, or on a real network off-CI.
+      exclude: [
+        'src/**/*.test.ts',
+        'src/index.ts',
+        'src/contract/**',
+        'src/**/*.example.ts',
+      ],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },
   },

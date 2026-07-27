@@ -6,6 +6,7 @@ export * from './model.js';
 export * from './clock.js';
 export * from './port.js';
 export * from './source-kind.js';
+export * from './resolve-source.js';
 export {
   PlaybackStateMachine,
   canSeekFrom,

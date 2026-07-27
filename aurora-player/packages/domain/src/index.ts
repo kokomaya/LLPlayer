@@ -26,3 +26,6 @@ export * from './telemetry/event.js';
 export * from './telemetry/sink.js';
 
 export * from './dsar/export.js';
+
+export * from './media/package.js';
+export * from './media/catalog.js';

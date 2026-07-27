@@ -106,6 +106,41 @@ describe('aurora learning loop', () => {
     expect(dueAfter.out).toContain('nothing due');
   });
 
+  it('files a word under tags/category and shows them (生词分类)', async () => {
+    const added = await invoke([
+      'vocab', 'add', 'Hello!', '--lang', 'en',
+      '--tag', 'greeting, common', '--category', 'phrases', '--at', String(T0),
+    ]);
+    expect(added.code).toBe(0);
+
+    const list = await invoke(['vocab', 'list']);
+    expect(list.out).toContain('en:hello');
+    expect(list.out).toContain('@phrases');
+    expect(list.out).toContain('#greeting,common'); // trimmed, comma-joined
+  });
+
+  it('filters vocab list by category, tag, and uncategorized', async () => {
+    await invoke(['vocab', 'add', 'hello', '--lang', 'en', '--category', 'phrases', '--tag', 'greeting', '--at', String(T0)]);
+    await invoke(['vocab', 'add', 'world', '--lang', 'en', '--category', 'nouns', '--at', String(T0)]);
+    await invoke(['vocab', 'add', 'bonjour', '--lang', 'fr', '--at', String(T0)]); // no category
+
+    const byCat = await invoke(['vocab', 'list', '--category', 'phrases']);
+    expect(byCat.out).toContain('en:hello');
+    expect(byCat.out).not.toContain('en:world');
+    expect(byCat.out).not.toContain('fr:bonjour');
+
+    const byTag = await invoke(['vocab', 'list', '--tag', 'greeting']);
+    expect(byTag.out).toContain('en:hello');
+    expect(byTag.out).not.toContain('en:world');
+
+    const uncat = await invoke(['vocab', 'list', '--uncategorized']);
+    expect(uncat.out).toContain('fr:bonjour');
+    expect(uncat.out).not.toContain('en:hello');
+
+    const empty = await invoke(['vocab', 'list', '--category', 'nope']);
+    expect(empty.out).toContain('no saved words');
+  });
+
   it('lists nothing before any word is saved', async () => {
     const r = await invoke(['vocab', 'list']);
     expect(r.out).toContain('no saved words');

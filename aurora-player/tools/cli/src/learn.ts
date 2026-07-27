@@ -10,8 +10,11 @@ import {
 import type { DictionaryRegistry } from '@aurora/dictionary';
 import {
   addVocabulary,
+  filterByCategory,
+  filterByTag,
   gradeReview,
   getDue,
+  UNCATEGORIZED,
   type IReviewScheduler,
 } from '@aurora/learning';
 import type { CliIO } from './run.js';
@@ -31,9 +34,10 @@ export interface LearnDeps {
 
 export const LEARN_USAGE = `Learning:
   aurora define <word> --lang <c>            Look up a word in the dictionary
-  aurora vocab add <word> --lang <c> [--context <t>] [--at <ms>]
+  aurora vocab add <word> --lang <c> [--context <t>] [--tag a,b] [--category c] [--at <ms>]
                                              Save a word and seed its review card
-  aurora vocab list                          List saved words
+  aurora vocab list [--tag <t>] [--category <c>] [--uncategorized]
+                                             List saved words, optionally filtered
   aurora review due [--at <ms>]              List cards due at <ms> (or now)
   aurora review grade <id> <rating> [--at <ms>]
                                              Grade a card (again|hard|good|easy)
@@ -76,6 +80,16 @@ const clockAt = (flags: Parsed['flags'], deps: LearnDeps): number | null => {
   }
   const at = Number(flags.at);
   return Number.isFinite(at) ? at : null;
+};
+
+/** Split a `--tag a,b, c` value into trimmed, non-empty tags (order kept). */
+const parseTags = (raw: string | undefined): readonly string[] | undefined => {
+  if (raw === undefined) return undefined;
+  const tags = raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t !== '');
+  return tags.length > 0 ? tags : undefined;
 };
 
 const requireLang = (
@@ -130,13 +144,30 @@ const runVocab = async (
 ): Promise<number> => {
   const sub = args[0];
   if (sub === 'list') {
-    const entries = await deps.vocab.list();
+    // `--uncategorized` is a boolean; strip it before the value-taking parser
+    // so it can't swallow a following `--tag`/`--category`.
+    const rest = args.slice(1);
+    const uncategorized = rest.includes('--uncategorized');
+    const { flags } = parse(rest.filter((a) => a !== '--uncategorized'));
+    let entries = await deps.vocab.list();
+    // Additive filters (plan · 生词分类): compose the pure vocab-classify
+    // helpers so the CLI surfaces the same categorization the app uses.
+    if (uncategorized) {
+      entries = filterByCategory(entries, UNCATEGORIZED);
+    } else if (flags.category !== undefined) {
+      entries = filterByCategory(entries, flags.category);
+    }
+    if (flags.tag !== undefined) {
+      entries = filterByTag(entries, flags.tag);
+    }
     if (entries.length === 0) {
       io.write('(no saved words)\n');
       return 0;
     }
     for (const e of entries) {
-      io.write(`${e.id}  ${e.lemma} [${e.status}]\n`);
+      const cat = e.category !== undefined ? ` @${e.category}` : '';
+      const tags = e.tags !== undefined && e.tags.length > 0 ? ` #${e.tags.join(',')}` : '';
+      io.write(`${e.id}  ${e.lemma} [${e.status}]${cat}${tags}\n`);
     }
     return 0;
   }
@@ -156,6 +187,7 @@ const runVocab = async (
       io.writeError('error: --at must be a number\n');
       return 2;
     }
+    const tags = parseTags(flags.tag);
     const result = await addVocabulary(
       { vocab: deps.vocab, reviews: deps.reviews, scheduler: deps.scheduler },
       {
@@ -163,6 +195,10 @@ const runVocab = async (
         lang,
         now,
         ...(flags.context !== undefined ? { context: flags.context } : {}),
+        ...(tags !== undefined ? { tags } : {}),
+        ...(flags.category !== undefined && flags.category !== ''
+          ? { category: flags.category }
+          : {}),
       },
     );
     io.write(

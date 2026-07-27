@@ -1,4 +1,5 @@
 import { createDefaultRegistry, type SubtitleDocument } from '@aurora/subtitle';
+import { isMediaCommand, runMedia } from './media.js';
 import { formatFrame, runPlayback, type PlaybackOptions } from './play.js';
 import { formatSubsShow, querySubtitleAt } from './subs-show.js';
 import { formatSubsWords, queryWordAt } from './subs-words.js';
@@ -34,6 +35,7 @@ Usage:
   aurora fetch <ref>                          A consent-gated online capability
   aurora telemetry status                     Show opt-in analytics status (gated)
   aurora data export|erase|prune|import ...    Export, delete, auto-expire, or re-import data
+  aurora media validate <package.json>        Check a media package can be uploaded
   (plugin commands accept --profile <play|ios|desktop|sideload>, default desktop,
    to gate out store-forbidden capabilities such as YouTube import on Play)
 `;
@@ -48,6 +50,9 @@ export const run = (argv: readonly string[], io: CliIO): number => {
   }
   if (argv[0] === 'play') {
     return runPlay(argv.slice(1), io);
+  }
+  if (isMediaCommand(argv[0])) {
+    return runMedia(argv, io);
   }
   io.writeError(USAGE);
   return 2;

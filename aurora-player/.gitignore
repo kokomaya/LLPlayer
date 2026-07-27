@@ -29,3 +29,6 @@ coverage/
 *.mobileprovision
 
 .npmrc
+!packages/
+!packages/**
+**/node_modules/

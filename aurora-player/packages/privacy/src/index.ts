@@ -30,3 +30,17 @@ export {
   type PruneOptions,
 } from './retention/retention-service.js';
 export type { RetentionPolicy, RetentionReport } from './retention/policy.js';
+
+// Data-processing transparency (plan/12 · Art.13/14 disclosure + Art.30 record
+// of processing): a pure static manifest + predicates that prove every gated
+// data use is disclosed (purpose limitation). Metadata only — no PII/credentials.
+export {
+  disclosedUses,
+  disclosureFor,
+  isFullyDisclosed,
+  missingDisclosures,
+  undisclosedUses,
+  type ProcessingManifest,
+  type ProcessingRecord,
+} from './disclosure/manifest.js';
+export { DEFAULT_PROCESSING_MANIFEST } from './disclosure/default-manifest.js';

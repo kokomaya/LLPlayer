@@ -21,6 +21,24 @@ export {
   type LearningControls,
 } from './composition/learning-controls.js';
 
+// Epic A/C source-selection consent gate: decide whether a local/URL/package
+// pick may play, and what `network` consent is missing if not. Reuses the
+// canonical privacy gate — no logic re-implemented in the UI.
+export {
+  STREAMING_DATA_USES,
+  decidePlayback,
+  type PlaybackDecision,
+} from './composition/source-gate.js';
+
+// Epic C marketplace controller: browse / detail / consent-gated play / upload
+// over the ICatalogBackend port. Headless so the store screen stays a thin
+// list+button layer; the concrete HTTP backend is injected on device.
+export {
+  createMarketplaceControls,
+  type MarketplaceControls,
+  type PackagePlayback,
+} from './composition/marketplace-controls.js';
+
 // Android IPlayer adapter core + the native `<Video>` seam it drives.
 export { ReactNativeVideoPlayer } from './adapters/react-native-video-player.js';
 export type {

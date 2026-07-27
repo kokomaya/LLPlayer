@@ -31,4 +31,7 @@ coverage/
 .npmrc
 !packages/
 !packages/**
+# `!packages/**` above re-includes everything under packages/, so the broad
+# artifact rules (node_modules/, coverage/) must be re-applied here for them.
 **/node_modules/
+**/coverage/

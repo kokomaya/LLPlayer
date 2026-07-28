@@ -40,6 +40,27 @@ export {
   type PlaybackDecision,
 } from './composition/source-gate.js';
 
+// Epic A "Stream Online Videos": validate/normalize a typed URL into a
+// `SourceInput` (then gated by `decidePlayback`), and remember it in a
+// history/favorites list. Pure logic; the device persists via `expo-file-system`.
+export {
+  parseUrlSource,
+  titleFromUrl,
+  type UrlSourceError,
+  type UrlSourceOk,
+  type UrlSourceResult,
+} from './composition/url-source.js';
+export {
+  RECENT_SOURCES_CAP,
+  createRecentSources,
+  mapRecent,
+  upsertRecent,
+  type RecentSource,
+  type RecentSources,
+  type RecentSourcesDeps,
+  type RecentSourcesStore,
+} from './composition/recent-sources.js';
+
 // Epic C marketplace controller: browse / detail / consent-gated play / upload
 // over the ICatalogBackend port. Headless so the store screen stays a thin
 // list+button layer; the concrete HTTP backend is injected on device.
@@ -91,6 +112,7 @@ export {
   createSubtitleWordActions,
   type FavoriteContext,
   type SubtitleWordActions,
+  type WordExternalLookup,
   type WordFavorite,
   type WordGloss,
   type WordLookup,

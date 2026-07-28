@@ -26,6 +26,20 @@ export interface WordGloss {
 /** Look a word up in the installed dictionaries (翻译/示例 source). */
 export type WordLookup = (word: string) => Promise<WordGloss | null>;
 
+/**
+ * Hand a word off to an EXTERNAL app already installed on the device — e.g. the
+ * user's translator/dictionary app via an Android `ACTION_TRANSLATE` /
+ * `ACTION_PROCESS_TEXT` intent. This is the "use the OS's own dictionary"
+ * pathway: instead of shipping a preset gloss table, the menu's 翻译 defers to
+ * whatever the learner has installed. Injected as a function-port so this core
+ * never imports `expo-intent-launcher` (that lives only in `App.tsx`). Resolves
+ * `true` when an app was launched, `false` when none could handle the word.
+ */
+export type WordExternalLookup = (input: {
+  readonly word: string;
+  readonly context?: string;
+}) => Promise<boolean>;
+
 /** Context passed when saving a word, so the sentence becomes its example. */
 export interface FavoriteContext {
   readonly lineText: string;
@@ -42,6 +56,12 @@ export interface SubtitleWordActionsDeps {
   readonly lookup?: WordLookup;
   /** Optional — when absent, `canFavorite` is false and the menu hides 收藏. */
   readonly favorite?: WordFavorite;
+  /**
+   * Optional — when absent, `canLookupExternally` is false and the menu hides
+   * the "open in translator app" action. When present, 翻译 can hand the word to
+   * the device's installed dictionary/translator instead of an in-app gloss.
+   */
+  readonly externalLookup?: WordExternalLookup;
 }
 
 /** The per-word menu opened by a long-press (mobile) / right-click (desktop). */
@@ -53,6 +73,12 @@ export interface WordMenu {
   examples(): Promise<readonly string[]>;
   /** 收藏 — save the word with the line as context; false if not wired. */
   favorite(context: FavoriteContext): Promise<boolean>;
+  /**
+   * 翻译 (external) — hand the word (optionally with its line as context) to the
+   * device's installed translator/dictionary app. Resolves `true` when an app
+   * was launched, `false` when none is wired or none could handle it.
+   */
+  openExternal(context?: string): Promise<boolean>;
 }
 
 /** Word-level interactions for the subtitle list / fullscreen views. */
@@ -65,6 +91,8 @@ export interface SubtitleWordActions {
   readonly canTranslate: boolean;
   /** Whether 收藏 is available (a vocabulary sink was injected). */
   readonly canFavorite: boolean;
+  /** Whether 翻译 can defer to an installed translator/dictionary app. */
+  readonly canLookupExternally: boolean;
 }
 
 /**
@@ -75,7 +103,7 @@ export interface SubtitleWordActions {
 export const createSubtitleWordActions = (
   deps: SubtitleWordActionsDeps,
 ): SubtitleWordActions => {
-  const { player, lookup, favorite } = deps;
+  const { player, lookup, favorite, externalLookup } = deps;
 
   const glossFor = (word: SubtitleWordVM): Promise<WordGloss | null> =>
     lookup ? lookup(word.text) : Promise.resolve(null);
@@ -83,6 +111,7 @@ export const createSubtitleWordActions = (
   return {
     canTranslate: lookup !== undefined,
     canFavorite: favorite !== undefined,
+    canLookupExternally: externalLookup !== undefined,
     seekToWord: (word) => {
       void player.seek(word.targetMs);
     },
@@ -101,6 +130,15 @@ export const createSubtitleWordActions = (
         }
         await favorite({ word: word.text, example: context.lineText });
         return true;
+      },
+      openExternal: (context) => {
+        if (!externalLookup) {
+          return Promise.resolve(false);
+        }
+        return externalLookup({
+          word: word.text,
+          ...(context !== undefined && { context }),
+        });
       },
     }),
   };

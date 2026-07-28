@@ -1,5 +1,15 @@
 {
   "android": {
     "package": "com.anonymous.auroramobile"
-  }
+  },
+  "plugins": [
+    [
+      "expo-build-properties",
+      {
+        "android": {
+          "reactNativeArchitectures": ["arm64-v8a", "x86_64"]
+        }
+      }
+    ]
+  ]
 }

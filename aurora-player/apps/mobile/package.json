@@ -18,7 +18,9 @@
     "@aurora/subtitle": "workspace:*",
     "@aurora/timeline": "workspace:*",
     "expo": "^57.0.8",
+    "expo-build-properties": "~57.0.0",
     "expo-file-system": "~57.0.1",
+    "expo-intent-launcher": "~57.0.0",
     "react": "19.2.3",
     "react-native": "^0.86.0",
     "react-native-video": "^6.19.2"

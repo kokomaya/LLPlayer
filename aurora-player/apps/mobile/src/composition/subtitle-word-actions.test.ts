@@ -51,6 +51,16 @@ describe('createSubtitleWordActions · capabilities', () => {
     expect(full.canTranslate).toBe(true);
     expect(full.canFavorite).toBe(true);
   });
+
+  it('canLookupExternally reflects the externalLookup port', () => {
+    const { player } = makePlayer();
+    expect(createSubtitleWordActions({ player }).canLookupExternally).toBe(false);
+    const withExternal = createSubtitleWordActions({
+      player,
+      externalLookup: async () => true,
+    });
+    expect(withExternal.canLookupExternally).toBe(true);
+  });
 });
 
 describe('createSubtitleWordActions · menu', () => {
@@ -92,5 +102,30 @@ describe('createSubtitleWordActions · menu', () => {
     const { player } = makePlayer();
     const menu = createSubtitleWordActions({ player }).openMenu(WORD);
     expect(await menu.favorite({ lineText: 'x' })).toBe(false);
+  });
+
+  it('openExternal forwards the word + context and passes the result through', async () => {
+    const { player } = makePlayer();
+    const externalLookup = vi.fn(async () => true);
+    const menu = createSubtitleWordActions({ player, externalLookup }).openMenu(WORD);
+    expect(await menu.openExternal('Be brave, my friend')).toBe(true);
+    expect(externalLookup).toHaveBeenCalledWith({
+      word: 'brave',
+      context: 'Be brave, my friend',
+    });
+  });
+
+  it('openExternal omits context when not supplied and relays a false result', async () => {
+    const { player } = makePlayer();
+    const externalLookup = vi.fn(async () => false);
+    const menu = createSubtitleWordActions({ player, externalLookup }).openMenu(WORD);
+    expect(await menu.openExternal()).toBe(false);
+    expect(externalLookup).toHaveBeenCalledWith({ word: 'brave' });
+  });
+
+  it('openExternal returns false when no external port is wired', async () => {
+    const { player } = makePlayer();
+    const menu = createSubtitleWordActions({ player }).openMenu(WORD);
+    expect(await menu.openExternal('ctx')).toBe(false);
   });
 });

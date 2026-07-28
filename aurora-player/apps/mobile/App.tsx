@@ -1,37 +1,42 @@
-import { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { createDefaultRegistry, type SubtitleDocument } from '@aurora/subtitle';
-import type { MediaSource } from '@aurora/player-api';
-import { VideoScreen } from './src/ui/VideoScreen';
+import type { MediaSource, SourceInput } from '@aurora/player-api';
 import {
+  emptyConsent,
+  withConsent,
+  type ConsentRecord,
+  type ConsentState,
+} from '@aurora/domain';
+import { VideoScreen } from './src/ui/VideoScreen';
+import { SourceScreen } from './src/ui/SourceScreen';
+import {
+  createRecentSources,
+  decidePlayback,
+  parseUrlSource,
   pickBestSubtitle,
+  type RecentSource,
+  type RecentSources,
+  type RecentSourcesStore,
+  type WordExternalLookup,
   type WordFavorite,
-  type WordGloss,
-  type WordLookup,
 } from './src/index';
 
 // --- Demo content -----------------------------------------------------------
 //
-// The app plays a REAL clip copied into its own PRIVATE on-device storage
-// (/data/data/<pkg>/files, which is what `FileSystem.documentDirectory` maps
-// to). Populate it with:
-//   apps/mobile/scripts/fetch-demo-media.ps1 -Push        # tiny matched clip
-//   apps/mobile/scripts/fetch-demo-media.ps1 -Clip sintel -WhisperX -Push
-// The file MUST be copied AS THE APP (run-as), not adb-pushed to /sdcard, or
-// the app gets EACCES (see the android-demo-media-run-as-copy note).
-//
-// At launch we list files/, pick the richest subtitle present (whisperx > srt >
-// … via pickBestSubtitle) and parse it with the real @aurora/subtitle registry.
-// If nothing is on the device yet, we fall back to the inline track below so the
-// app always shows something.
+// The app can play (a) a REAL clip copied into its own PRIVATE on-device storage
+// (see apps/mobile/scripts/fetch-demo-media.ps1 -Push; must be copied AS THE APP
+// via run-as, not adb-pushed to /sdcard), OR (b) any online video/HLS URL typed
+// on the home screen. At launch we probe files/ for the demo clip and pick the
+// richest subtitle present; the URL path streams straight through the same
+// consent gate + player and (for now) plays without subtitles.
 const registry = createDefaultRegistry();
 const VIDEO_EXTENSIONS: readonly string[] = ['.mp4', '.m4v', '.mov', '.mkv', '.webm'];
 
-// Inline subtitle track, parsed by the real parser (same code path as the CLI).
-// Used as the subtitle when a device video has no sibling track — we never hand
-// ExoPlayer a made-up video path (that yields ERROR_CODE_IO_FILE_NOT_FOUND), so
-// there is deliberately no hardcoded FALLBACK_MEDIA: no on-device video ⇒ show a
-// hint screen instead of playing a URI that isn't there.
+// Inline subtitle track (real parser, same path as the CLI) used when a device
+// clip has no sibling track. URL sources get an empty document — there is no
+// local subtitle to pair with a stream (SubX-style AI/online subtitles are a
+// phased follow-up; see LLPlayer_Design/next_task.md ③).
 const DEMO_SRT = `1
 00:00:02,000 --> 00:00:06,000
 Welcome to Aurora Player
@@ -57,38 +62,65 @@ Seeking jumps both video and subtitle
 Enjoy learning with subtitles!
 `;
 
-// Offline demo dictionary + vocabulary — the two heavy ports (@aurora/dictionary
-// / @aurora/learning) are NOT imported here; instead we inject tiny local stubs
-// so 翻译/示例/收藏 work with zero network and zero keys (security rule ①.E). A
-// real build swaps these for the installed dictionary + vocabulary store.
-const DEMO_GLOSSARY: Record<string, WordGloss> = {
-  welcome: { headword: 'welcome', senses: [{ definition: '欢迎；迎接', partOfSpeech: 'v.', examples: ['Welcome home', 'They welcomed us warmly'] }] },
-  aurora: { headword: 'aurora', senses: [{ definition: '极光；曙光', partOfSpeech: 'n.', examples: ['the northern aurora'] }] },
-  player: { headword: 'player', senses: [{ definition: '播放器；玩家', partOfSpeech: 'n.', examples: ['a media player'] }] },
-  demo: { headword: 'demo', senses: [{ definition: '演示；样例', partOfSpeech: 'n.', examples: ['a quick demo'] }] },
-  subtitle: { headword: 'subtitle', senses: [{ definition: '字幕', partOfSpeech: 'n.', examples: ['turn on subtitles'] }] },
-  word: { headword: 'word', senses: [{ definition: '词；单词', partOfSpeech: 'n.', examples: ['a new word'] }] },
-  words: { headword: 'word', senses: [{ definition: '词；单词（复数）', partOfSpeech: 'n.', examples: ['learn ten words'] }] },
-  highlight: { headword: 'highlight', senses: [{ definition: '突出显示；高亮', partOfSpeech: 'v.', examples: ['highlight the active word'] }] },
-  video: { headword: 'video', senses: [{ definition: '视频', partOfSpeech: 'n.', examples: ['watch a video'] }] },
-  sync: { headword: 'sync', senses: [{ definition: '同步', partOfSpeech: 'n.', examples: ['audio in sync'] }] },
-  seeking: { headword: 'seek', senses: [{ definition: '跳转；寻找', partOfSpeech: 'v.', examples: ['seeking a new position'] }] },
-  learning: { headword: 'learn', senses: [{ definition: '学习', partOfSpeech: 'v.', examples: ['learning a language'] }] },
-  first: { headword: 'first', senses: [{ definition: '第一的；首先', partOfSpeech: 'adj.', examples: ['the first subtitle'] }] },
-  second: { headword: 'second', senses: [{ definition: '第二的；秒', partOfSpeech: 'adj.', examples: ['the second line'] }] },
-  third: { headword: 'third', senses: [{ definition: '第三的', partOfSpeech: 'adj.', examples: ['the third cue'] }] },
+const EMPTY_DOC: SubtitleDocument = {
+  lines: [],
+  meta: { format: 'none' },
+  hasWordTimings: false,
 };
 
-const demoLookup: WordLookup = (word) => {
-  const key = word.toLowerCase().replace(/[^a-z]/g, '');
-  return Promise.resolve(DEMO_GLOSSARY[key] ?? null);
-};
-
-// Session-only favourites — a real build persists via @aurora/learning.
+// Session-only favourites — a real build persists via @aurora/learning. 翻译 no
+// longer uses a hardcoded gloss table: long-press → the device's installed
+// translator/dictionary app (see wordExternalLookup below).
 const demoFavorites = new Set<string>();
 const demoFavorite: WordFavorite = ({ word }) => {
   demoFavorites.add(word);
   return Promise.resolve();
+};
+
+// 翻译 handoff: hand the word to whatever translator/dictionary the learner has
+// installed (Android intent) — the "use the OS's own dictionary" pathway. Tries
+// ACTION_TRANSLATE first (Google Translate & friends), then ACTION_PROCESS_TEXT
+// (any app that registered a text action). `expo-intent-launcher` is loaded via
+// require so a missing native module degrades to `false` instead of crashing.
+const loadIntentLauncher = (): {
+  startActivityAsync: (action: string, params?: Record<string, unknown>) => Promise<unknown>;
+} | null => {
+  try {
+    return require('expo-intent-launcher');
+  } catch {
+    return null;
+  }
+};
+const IntentLauncher = loadIntentLauncher();
+
+const wordExternalLookup: WordExternalLookup = async ({ word }) => {
+  if (Platform.OS !== 'android' || IntentLauncher === null) {
+    return false;
+  }
+  const text = word.trim();
+  if (text.length === 0) {
+    return false;
+  }
+  try {
+    await IntentLauncher.startActivityAsync('android.intent.action.TRANSLATE', {
+      extra: { 'android.intent.extra.TEXT': text },
+    });
+    return true;
+  } catch {
+    /* no ACTION_TRANSLATE handler — fall back to PROCESS_TEXT */
+  }
+  try {
+    await IntentLauncher.startActivityAsync('android.intent.action.PROCESS_TEXT', {
+      type: 'text/plain',
+      extra: {
+        'android.intent.extra.PROCESS_TEXT': text,
+        'android.intent.extra.PROCESS_TEXT_READONLY': true,
+      },
+    });
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 /** Parse the inline fallback track (used until/unless a device file is found). */
@@ -98,22 +130,16 @@ const parseFallback = (): SubtitleDocument | null => {
 };
 
 // Minimal shape of the classic (functional) expo-file-system API we rely on.
+// SDK 54+ moved these to the `/legacy` subpath; older SDKs keep them on the base
+// module (see loadFileSystem). `writeAsStringAsync` persists the recent list +
+// consent as JSON in the app's private documents dir (zero extra dependency).
 type FunctionalFS = {
   documentDirectory: string | null;
   readDirectoryAsync: (dir: string) => Promise<string[]>;
   readAsStringAsync: (uri: string) => Promise<string>;
+  writeAsStringAsync: (uri: string, contents: string) => Promise<void>;
 };
 
-/**
- * Resolve the functional file-system API across Expo SDKs. SDK 54+ moved
- * `documentDirectory`/`readDirectoryAsync`/`readAsStringAsync` to the `/legacy`
- * subpath (the base module now exposes the new File/Directory classes instead);
- * older SDKs keep them on the base module. We use synchronous `require` with
- * string-literal specifiers so Metro bundles whichever is present into the MAIN
- * bundle — a dynamic `await import()` here would be split into a separate RN
- * chunk that can't see the main bundle's module registry ("Requiring unknown
- * module"). Returns null if the module isn't installed at all (⇒ hint screen).
- */
 const loadFileSystem = (): { fs: FunctionalFS | null; diag: string } => {
   const notes: string[] = [];
   try {
@@ -121,10 +147,8 @@ const loadFileSystem = (): { fs: FunctionalFS | null; diag: string } => {
     if (typeof legacy.readDirectoryAsync === 'function') {
       return { fs: legacy as FunctionalFS, diag: 'legacy OK' };
     }
-    // Resolved as a module but no functional API → Metro/exports resolution issue.
     notes.push(`legacy required, readDirectoryAsync=${typeof legacy.readDirectoryAsync}`);
   } catch (e) {
-    // require threw → almost always the NATIVE module isn't in the APK.
     notes.push(`legacy require threw: ${String(e)}`);
   }
   try {
@@ -139,132 +163,271 @@ const loadFileSystem = (): { fs: FunctionalFS | null; diag: string } => {
   return { fs: null, diag: notes.join(' | ') };
 };
 
-// Probe result carries a human-readable `note` so failures are visible ON THE
-// DEVICE (the hint screen prints it) instead of collapsing every cause into a
-// single opaque "No demo media" — this is the primary way to debug why a real
-// clip isn't loading without wiring up a JS debugger.
+// --- Persistence adapters (device shell wiring for the tested core ports) ----
+
+const RECENT_FILE = 'recent-sources.json';
+const CONSENT_FILE = 'consent.json';
+
+/** Back the tested `RecentSourcesStore` port with a JSON file in documents/. */
+const makeRecentStore = (fs: FunctionalFS): RecentSourcesStore => {
+  const path = (fs.documentDirectory ?? '') + RECENT_FILE;
+  return {
+    load: async () => {
+      try {
+        const parsed = JSON.parse(await fs.readAsStringAsync(path));
+        return Array.isArray(parsed) ? (parsed as RecentSource[]) : [];
+      } catch {
+        return [];
+      }
+    },
+    save: async (list) => {
+      try {
+        await fs.writeAsStringAsync(path, JSON.stringify(list));
+      } catch {
+        /* best-effort persistence; a write failure just loses history */
+      }
+    },
+  };
+};
+
+const loadConsent = async (fs: FunctionalFS): Promise<ConsentState> => {
+  try {
+    const path = (fs.documentDirectory ?? '') + CONSENT_FILE;
+    const records = JSON.parse(await fs.readAsStringAsync(path)) as ConsentRecord[];
+    let state = emptyConsent();
+    for (const r of records) {
+      state = withConsent(state, r.use, r.granted, r.at);
+    }
+    return state;
+  } catch {
+    return emptyConsent();
+  }
+};
+
+const saveConsent = async (fs: FunctionalFS, state: ConsentState): Promise<void> => {
+  try {
+    const path = (fs.documentDirectory ?? '') + CONSENT_FILE;
+    await fs.writeAsStringAsync(path, JSON.stringify([...state.values()]));
+  } catch {
+    /* best-effort */
+  }
+};
+
+// Probe result for the on-device demo clip (offered as a home-screen shortcut).
 type DeviceProbe =
   | { ok: true; media: MediaSource; document: SubtitleDocument; note: string }
   | { ok: false; note: string };
 
-/**
- * Probe the app's private files dir for a real clip. On success returns the video
- * (required) plus the richest device subtitle that parses, or the inline fallback
- * track when no sibling subtitle is present/parseable. On failure returns a
- * diagnostic `note` naming the exact step that failed — we never hand ExoPlayer a
- * made-up path (that yields ERROR_CODE_IO_FILE_NOT_FOUND).
- */
 const loadDeviceDemo = async (
+  fs: FunctionalFS | null,
   fallbackDoc: SubtitleDocument | null,
 ): Promise<DeviceProbe> => {
-  let fsResult: { fs: FunctionalFS | null; diag: string };
-  try {
-    fsResult = loadFileSystem();
-  } catch (e) {
-    return { ok: false, note: `loadFileSystem threw: ${String(e)}` };
+  if (!fs) {
+    return { ok: false, note: 'expo-file-system unavailable' };
   }
-  const FileSystem = fsResult.fs;
-  if (!FileSystem) {
-    // fsResult.diag names the ACTUAL failure:
-    //  • "import threw: ..."      → native module missing from the APK ⇒ REBUILD dev client
-    //  • "imported, readDirectoryAsync=undefined" → Metro/exports resolution ⇒ metro.config
-    return {
-      ok: false,
-      note: `expo-file-system unavailable\n${fsResult.diag}`,
-    };
-  }
-  const dir = FileSystem.documentDirectory ?? null;
+  const dir = fs.documentDirectory ?? null;
   if (!dir) {
     return { ok: false, note: 'FileSystem.documentDirectory is null.' };
   }
   let names: string[];
   try {
-    names = await FileSystem.readDirectoryAsync(dir);
+    names = await fs.readDirectoryAsync(dir);
   } catch (e) {
     return { ok: false, note: `readDirectoryAsync failed: ${String(e)}` };
   }
-  const listing = names.length > 0 ? names.join(', ') : '(empty)';
   const video = names.find((n) =>
     VIDEO_EXTENSIONS.some((ext) => n.toLowerCase().endsWith(ext)),
   );
   if (video === undefined) {
-    return { ok: false, note: `No video in\n${dir}\nfiles: ${listing}` };
+    return { ok: false, note: `No device clip in ${dir}` };
   }
   const media: MediaSource = { id: `demo-${video}`, uri: dir + video, title: video };
-  // Prefer a device subtitle that actually parses; otherwise fall back to the
-  // inline track so the clip still plays (just without word-level device sync).
   const subtitle = pickBestSubtitle(names);
   if (subtitle !== null) {
     try {
-      const content = await FileSystem.readAsStringAsync(dir + subtitle);
+      const content = await fs.readAsStringAsync(dir + subtitle);
       const parsed = registry.parse({ content, filename: subtitle });
       if (parsed.ok) {
         return { ok: true, media, document: parsed.value, note: `video=${video}, sub=${subtitle}` };
       }
-      if (fallbackDoc !== null) {
-        return { ok: true, media, document: fallbackDoc, note: `video=${video}, sub=${subtitle} PARSE FAILED → inline` };
-      }
-    } catch (e) {
-      if (fallbackDoc !== null) {
-        return { ok: true, media, document: fallbackDoc, note: `video=${video}, sub read failed → inline (${String(e)})` };
-      }
+    } catch {
+      /* fall through to the inline fallback */
     }
   }
   if (fallbackDoc !== null) {
-    return { ok: true, media, document: fallbackDoc, note: `video=${video} (no device subtitle → inline)` };
+    return { ok: true, media, document: fallbackDoc, note: `video=${video} (inline subtitle)` };
   }
-  return { ok: false, note: `Found ${video} but no usable subtitle and no inline fallback.` };
+  return { ok: false, note: `Found ${video} but no usable subtitle.` };
 };
 
+type Playback = { readonly media: MediaSource; readonly document: SubtitleDocument };
+
 export default function App(): React.JSX.Element {
-  const fallbackDoc = useMemo(parseFallback, []);
-  const [probe, setProbe] = useState<DeviceProbe | null>(null);
+  const [ready, setReady] = useState(false);
+  const [view, setView] = useState<'home' | 'player'>('home');
+  const [playback, setPlayback] = useState<Playback | null>(null);
+  const [deviceProbe, setDeviceProbe] = useState<DeviceProbe | null>(null);
+  const [recentList, setRecentList] = useState<readonly RecentSource[]>([]);
+  const [consent, setConsent] = useState<ConsentState>(emptyConsent());
+  const [urlText, setUrlText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pendingInput, setPendingInput] = useState<SourceInput | null>(null);
+  const [consentPrompt, setConsentPrompt] = useState(false);
+
+  const fsRef = useRef<FunctionalFS | null>(null);
+  const recentRef = useRef<RecentSources | null>(null);
 
   useEffect(() => {
     let alive = true;
-    void loadDeviceDemo(fallbackDoc).then((result) => {
-      if (alive) {
-        // Also log to Metro / `adb logcat -s ReactNativeJS` for off-device tracing.
-        console.log('[Aurora] device probe:', result.note);
-        setProbe(result);
+    const fallbackDoc = parseFallback();
+    void (async () => {
+      const { fs } = loadFileSystem();
+      fsRef.current = fs;
+      if (fs) {
+        recentRef.current = createRecentSources({
+          store: makeRecentStore(fs),
+          now: () => Date.now(),
+        });
       }
-    });
+      const [probe, savedConsent, savedRecent] = await Promise.all([
+        loadDeviceDemo(fs, fallbackDoc),
+        fs ? loadConsent(fs) : Promise.resolve(emptyConsent()),
+        recentRef.current ? recentRef.current.list() : Promise.resolve([]),
+      ]);
+      if (!alive) return;
+      setDeviceProbe(probe);
+      setConsent(savedConsent);
+      setRecentList(savedRecent);
+      setReady(true);
+    })();
     return () => {
       alive = false;
     };
-  }, [fallbackDoc]);
+  }, []);
 
-  if (probe === null) {
+  const openSource = async (media: MediaSource, input: SourceInput): Promise<void> => {
+    setPlayback({ media, document: EMPTY_DOC });
+    setView('player');
+    if (input.kind === 'uri' && recentRef.current) {
+      const title = input.title ?? input.uri;
+      setRecentList(await recentRef.current.add(input.uri, title));
+    }
+  };
+
+  const attemptPlay = (input: SourceInput, state: ConsentState): void => {
+    const decision = decidePlayback(input, state);
+    if (!decision.ready) {
+      setPendingInput(input);
+      setConsentPrompt(true);
+      return;
+    }
+    void openSource(decision.media, input);
+  };
+
+  const submitUrl = (): void => {
+    const parsed = parseUrlSource(urlText);
+    if (!parsed.ok) {
+      setError(parsed.reason === 'empty' ? '请输入视频链接' : '链接无效，请输入 http/https 视频地址');
+      return;
+    }
+    setError(null);
+    setUrlText('');
+    attemptPlay(parsed.input, consent);
+  };
+
+  const replay = (s: RecentSource): void => {
+    const parsed = parseUrlSource(s.uri, s.title);
+    if (parsed.ok) {
+      attemptPlay(parsed.input, consent);
+    }
+  };
+
+  const grantConsent = async (): Promise<void> => {
+    const next = withConsent(consent, 'network', true, Date.now());
+    setConsent(next);
+    setConsentPrompt(false);
+    if (fsRef.current) {
+      void saveConsent(fsRef.current, next);
+    }
+    if (pendingInput) {
+      const input = pendingInput;
+      setPendingInput(null);
+      const decision = decidePlayback(input, next);
+      if (decision.ready) {
+        void openSource(decision.media, input);
+      }
+    }
+  };
+
+  const dismissConsent = (): void => {
+    setConsentPrompt(false);
+    setPendingInput(null);
+  };
+
+  const renameRecent = async (s: RecentSource, title: string): Promise<void> => {
+    if (recentRef.current) {
+      setRecentList(await recentRef.current.rename(s.uri, title));
+    }
+  };
+  const toggleFavorite = async (s: RecentSource): Promise<void> => {
+    if (recentRef.current) {
+      setRecentList(await recentRef.current.toggleFavorite(s.uri));
+    }
+  };
+  const removeRecent = async (s: RecentSource): Promise<void> => {
+    if (recentRef.current) {
+      setRecentList(await recentRef.current.remove(s.uri));
+    }
+  };
+
+  if (!ready) {
     return (
       <View style={styles.container}>
         <Text style={styles.title}>Aurora Player</Text>
-        <Text style={styles.hint}>Loading demo…</Text>
+        <Text style={styles.hint}>Loading…</Text>
       </View>
     );
   }
 
-  // No playable video on the device — never hand ExoPlayer a made-up path (that
-  // is the ERROR_CODE_IO_FILE_NOT_FOUND you saw). Print the reason for debugging.
-  if (!probe.ok) {
+  if (view === 'player' && playback !== null) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.title}>Aurora Player</Text>
-        <Text style={styles.hint}>No demo media loaded.</Text>
-        <Text style={styles.debug}>{probe.note}</Text>
-        <Text style={styles.hint}>
-          Push one with: apps/mobile/scripts/fetch-demo-media.ps1 -Push
-        </Text>
-      </View>
+      <VideoScreen
+        media={playback.media}
+        document={playback.document}
+        subtitleMode="list"
+        wordExternalLookup={wordExternalLookup}
+        wordFavorite={demoFavorite}
+        onBack={() => setView('home')}
+      />
     );
   }
+
+  const deviceDemo =
+    deviceProbe?.ok === true
+      ? {
+          title: deviceProbe.media.title ?? 'demo',
+          onPlay: (): void => {
+            setPlayback({ media: deviceProbe.media, document: deviceProbe.document });
+            setView('player');
+          },
+        }
+      : null;
 
   return (
-    <VideoScreen
-      media={probe.media}
-      document={probe.document}
-      subtitleMode="list"
-      wordLookup={demoLookup}
-      wordFavorite={demoFavorite}
+    <SourceScreen
+      urlText={urlText}
+      onChangeUrl={setUrlText}
+      onSubmitUrl={submitUrl}
+      error={error}
+      recent={recentList}
+      onReplay={replay}
+      onRename={(s, title) => void renameRecent(s, title)}
+      onToggleFavorite={(s) => void toggleFavorite(s)}
+      onRemove={(s) => void removeRecent(s)}
+      deviceDemo={deviceDemo}
+      consentPrompt={consentPrompt}
+      onGrantConsent={() => void grantConsent()}
+      onDismissConsent={dismissConsent}
     />
   );
 }
@@ -280,10 +443,4 @@ const styles = StyleSheet.create({
   },
   title: { color: '#fff', fontSize: 24, fontWeight: '600' },
   hint: { color: '#9aa0aa', fontSize: 14, textAlign: 'center' },
-  debug: {
-    color: '#ffcc66',
-    fontSize: 12,
-    fontFamily: 'monospace',
-    textAlign: 'center',
-  },
 });

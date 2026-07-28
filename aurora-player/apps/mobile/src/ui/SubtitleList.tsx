@@ -197,12 +197,23 @@ function WordMenuSheet({
   const [gloss, setGloss] = useState<WordGloss | null>(null);
   const [examples, setExamples] = useState<readonly string[] | null>(null);
   const [saved, setSaved] = useState(false);
+  const [externalMiss, setExternalMiss] = useState(false);
 
   const translate = async (): Promise<void> => {
     setGloss(await controller.translate());
   };
   const showExamples = async (): Promise<void> => {
     setExamples(await controller.examples());
+  };
+  // 翻译 via the device's installed translator/dictionary app (modern handoff —
+  // no preset gloss table). Closes the sheet on a successful launch; if nothing
+  // can handle the word we leave the sheet open with a hint.
+  const openExternal = async (): Promise<void> => {
+    if (await controller.openExternal(menu.lineText)) {
+      onClose();
+    } else {
+      setExternalMiss(true);
+    }
   };
   const favorite = async (): Promise<void> => {
     if (await controller.favorite({ lineText: menu.lineText })) {
@@ -223,8 +234,13 @@ function WordMenuSheet({
         >
           <Text style={styles.menuTitle}>{menu.word.text}</Text>
           <View style={styles.menuActions}>
+            {actions.canLookupExternally && (
+              <MenuButton label="翻译" onPress={openExternal} />
+            )}
+            {/* Inline dictionary gloss (only when an in-app dictionary port is
+                wired). Labeled 词典 so it never collides with the external 翻译. */}
             {actions.canTranslate && (
-              <MenuButton label="翻译" onPress={translate} />
+              <MenuButton label="词典" onPress={translate} />
             )}
             {actions.canTranslate && (
               <MenuButton label="示例" onPress={showExamples} />
@@ -233,6 +249,12 @@ function WordMenuSheet({
               <MenuButton label={saved ? '已收藏' : '收藏'} onPress={favorite} />
             )}
           </View>
+
+          {externalMiss && (
+            <Text style={styles.externalMiss}>
+              未找到可用的翻译/词典应用，请先安装一个（如 Google 翻译）。
+            </Text>
+          )}
 
           {gloss !== null && (
             <View style={styles.result}>
@@ -342,6 +364,7 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(255,255,255,0.15)',
     paddingTop: 12,
   },
+  externalMiss: { color: '#ffcc66', fontSize: 13, marginTop: 12 },
   phonetics: { color: '#9aa0a6', fontSize: 14, marginBottom: 6 },
   sense: { color: '#e6e6e6', fontSize: 16, marginBottom: 6 },
   example: { color: '#c9c9c9', fontSize: 15, marginBottom: 4 },

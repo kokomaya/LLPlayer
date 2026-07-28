@@ -12,6 +12,7 @@ import { createLearningControls, type LearningControls } from './learning-contro
 import {
   createSubtitleWordActions,
   type SubtitleWordActions,
+  type WordExternalLookup,
   type WordFavorite,
   type WordLookup,
 } from './subtitle-word-actions.js';
@@ -42,6 +43,13 @@ export interface PlayerRuntimeDeps {
    * menu hides 收藏.
    */
   readonly wordFavorite?: WordFavorite;
+  /**
+   * External translator/dictionary handoff for the word menu (翻译 via the
+   * device's installed app). Injected as a function-port by the App shell so
+   * this runtime never imports `expo-intent-launcher`; when absent the menu
+   * hides the "open in translator" action.
+   */
+  readonly wordExternalLookup?: WordExternalLookup;
 }
 
 /**
@@ -100,6 +108,9 @@ export const createPlayerRuntime = (deps: PlayerRuntimeDeps): PlayerRuntime => {
     player,
     ...(deps.wordLookup !== undefined && { lookup: deps.wordLookup }),
     ...(deps.wordFavorite !== undefined && { favorite: deps.wordFavorite }),
+    ...(deps.wordExternalLookup !== undefined && {
+      externalLookup: deps.wordExternalLookup,
+    }),
   });
 
   // Adapter→domain bridge: translate player events onto the bus. This is the

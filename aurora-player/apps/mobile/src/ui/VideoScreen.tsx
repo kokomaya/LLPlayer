@@ -21,6 +21,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
   type LayoutChangeEvent,
 } from 'react-native';
 import Video, { ViewType, type VideoRef } from 'react-native-video';
@@ -34,6 +35,7 @@ import {
   type SubtitleWordActions,
   type TransportControls,
   type TransportState,
+  type WordExternalLookup,
   type WordFavorite,
   type WordLookup,
 } from '../index.js';
@@ -79,8 +81,16 @@ export interface VideoScreenProps {
   readonly wordLookup?: WordLookup;
   /** Vocabulary sink for the 收藏 action, injected the same way (Epic B). */
   readonly wordFavorite?: WordFavorite;
+  /**
+   * External translator/dictionary handoff for 翻译 (long-press word). Injected
+   * by App.tsx so this leaf never imports `expo-intent-launcher`; when absent the
+   * menu hides the "open in translator" action.
+   */
+  readonly wordExternalLookup?: WordExternalLookup;
   /** Optional toast when a word is saved (收藏). */
   readonly onFavorited?: (word: string) => void;
+  /** Optional "back to home" affordance (shown when the URL home is wired). */
+  readonly onBack?: () => void;
 }
 
 /**
@@ -123,8 +133,15 @@ export function VideoScreen({
   subtitleLineCount,
   wordLookup,
   wordFavorite,
+  wordExternalLookup,
   onFavorited,
+  onBack,
 }: VideoScreenProps): React.JSX.Element {
+  // Rotation redraws this view (Manifest declares orientation|screenSize
+  // configChanges), so we derive the layout from live dimensions rather than a
+  // static orientation prop.
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   const videoRef = useRef<VideoRef | null>(null);
   const callbacksRef = useRef<NativeVideoCallbacks | null>(null);
   const [uri, setUri] = useState<string | null>(null);
@@ -166,6 +183,7 @@ export function VideoScreen({
       ...(subtitleLineCount !== undefined && { subtitleLineCount }),
       ...(wordLookup !== undefined && { wordLookup }),
       ...(wordFavorite !== undefined && { wordFavorite }),
+      ...(wordExternalLookup !== undefined && { wordExternalLookup }),
     });
     controlsRef.current = runtime.controls;
     transportRef.current = runtime.transport;
@@ -209,6 +227,7 @@ export function VideoScreen({
     subtitleLineCount,
     wordLookup,
     wordFavorite,
+    wordExternalLookup,
   ]);
 
   // Cycle overlay → list → fullscreen → overlay. The presenter owns the mode;
@@ -299,6 +318,13 @@ export function VideoScreen({
     </TouchableOpacity>
   );
 
+  // Optional "back to home" pill (top-left), only when a home screen is wired.
+  const backButton = onBack !== undefined && (
+    <TouchableOpacity style={styles.backButton} onPress={onBack}>
+      <Text style={styles.modeToggleLabel}>‹ 返回</Text>
+    </TouchableOpacity>
+  );
+
   // The word-addressable transcript (list) / windowed strip (fullscreen). Painted
   // only when its controller is wired; overlay mode uses <SubtitleOverlay>.
   const subtitleListEl =
@@ -359,15 +385,34 @@ export function VideoScreen({
     </View>
   );
 
-  // Portrait list (用户要求：视频最上方 + 下面一排排字幕列表): video sits in a
-  // 16:9 box at the top with the bars floating over it, the transcript fills the
-  // rest below. Overlay / fullscreen keep the video full-bleed with subtitles
-  // floating over the picture.
+  // List mode splits video and transcript so BOTH are always visible:
+  //  • portrait  → video in a 16:9 box on top, transcript fills the rest below
+  //    (用户要求：视频最上方 + 下面一排排字幕列表).
+  //  • landscape → video (flex:2) on the LEFT, transcript (flex:1) on the RIGHT,
+  //    so a 16:9 box can't push the subtitles off-screen (横屏也能看字幕).
+  // Overlay / fullscreen keep the video full-bleed with subtitles floating over
+  // the picture, which already works in both orientations.
   if (mode === 'list') {
+    if (isLandscape) {
+      return (
+        <View style={styles.containerRow}>
+          <View style={styles.videoPaneLandscape}>
+            {videoEl}
+            {backButton}
+            {modeToggle}
+            {transportBar}
+            {controlBar}
+            {errorBanner}
+          </View>
+          <View style={styles.listPaneLandscape}>{subtitleListEl}</View>
+        </View>
+      );
+    }
     return (
       <View style={styles.container}>
         <View style={styles.videoBoxList}>
           {videoEl}
+          {backButton}
           {modeToggle}
           {transportBar}
           {controlBar}
@@ -383,6 +428,7 @@ export function VideoScreen({
       {videoEl}
       {mode === 'overlay' && <SubtitleOverlay state={overlay} />}
       {mode === 'fullscreen' && subtitleListEl}
+      {backButton}
       {modeToggle}
       {transportBar}
       {controlBar}
@@ -393,6 +439,12 @@ export function VideoScreen({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'black' },
+  // Landscape list: video and transcript sit side by side.
+  containerRow: { flex: 1, flexDirection: 'row', backgroundColor: 'black' },
+  // Left video pane (landscape list) — the picture fills it, bars float over it.
+  videoPaneLandscape: { flex: 2, position: 'relative', backgroundColor: 'black' },
+  // Right transcript pane (landscape list) — always on-screen alongside the video.
+  listPaneLandscape: { flex: 1, backgroundColor: '#0d0d0f' },
   // Fill the container as a flex child. Under the New Architecture (Fabric)
   // interop, `react-native-video`'s native view does NOT resolve
   // `absoluteFillObject`'s top/bottom insets to a concrete height — it lays out
@@ -419,6 +471,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   modeToggleLabel: { color: 'white', fontSize: 13 },
+  // Small pill (top-left) to return to the URL/home screen.
+  backButton: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
   errorBanner: {
     position: 'absolute',
     left: 0,

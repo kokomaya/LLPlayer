@@ -1,14 +1,12 @@
 //
-// ⚠️  ON-DEVICE REFERENCE BINDING — NOT COMPILED / TESTED / LINTED IN CI. ⚠️
+// ⚠️  ON-DEVICE REFERENCE BINDING — NOT TYPECHECKED / TESTED IN CI. ⚠️
 //
-// This file is intentionally excluded from the project graph:
-//   • tsconfig.json `include` is `src/**/*.ts` (no .tsx)
-//   • eslint.config.mjs ignores `**/*.example.tsx`
-//   • vitest coverage excludes `src/**/*.example.*`
-// because `react`, `react-native`, and `react-native-video` are NOT installed
-// in this repo (they are heavy device-only deps). To ship on a device, follow
-// README.md: install those libs, then copy this file to `VideoScreen.tsx` and
-// drop the `.example` from its imports.
+// tsconfig `include` is `src/**/*.ts` (no .tsx) so `tsc` never sees this, and
+// vitest coverage excludes `src/ui/**`, so it is type-validated on a device via
+// Expo/Metro (where `react` / `react-native` / `react-native-video` are
+// installed), not here. It IS linted — ESLint only ignores `**/*.example.tsx`,
+// so this leaf stays syntactically clean. The companion `.example.tsx` variant
+// exists purely as a copy-me template for a fresh device wiring.
 //
 // It is the THIN native leaf of the ports-&-adapters design (plan/04): all it
 // does is adapt the imperative `react-native-video` `<Video ref>` handle to the
@@ -17,12 +15,27 @@
 // here — that all sits in the Node-tested core.
 //
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  PanResponder,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
 import Video, { ViewType, type VideoRef } from 'react-native-video';
 import {
   createPlayerRuntime,
+  formatClock,
   type LearningControls,
   type PlayerRuntime,
+  type SubtitleDisplayMode,
+  type SubtitleListViewState,
+  type SubtitleWordActions,
+  type TransportControls,
+  type TransportState,
+  type WordFavorite,
+  type WordLookup,
 } from '../index.js';
 import type {
   NativeVideoCallbacks,
@@ -31,7 +44,19 @@ import type {
 import type { MediaSource } from '@aurora/player-api';
 import type { SubtitleDocument } from '@aurora/subtitle';
 import { SubtitleOverlay } from './SubtitleOverlay.js';
+import { SubtitleList } from './SubtitleList.js';
 import type { OverlayViewState } from '@aurora/presentation';
+
+// Display modes cycled by the ⤢ toggle, in order. `overlay` = the classic
+// single-line caption over the picture; `list` = subx-style scrollable transcript
+// BELOW the video (portrait); `fullscreen` = a fixed window of source lines over
+// the picture. All three are painted from the SAME presenters — see SubtitleList.
+const MODE_CYCLE: readonly SubtitleDisplayMode[] = ['overlay', 'list', 'fullscreen'];
+const MODE_LABEL: Record<SubtitleDisplayMode, string> = {
+  overlay: '单行',
+  list: '列表',
+  fullscreen: '全屏',
+};
 
 export interface VideoScreenProps {
   readonly media: MediaSource;
@@ -43,6 +68,19 @@ export interface VideoScreenProps {
    * Left as a prop so this reference file needs no clipboard dependency.
    */
   readonly onCopyText?: (text: string) => void;
+  /** Initial subtitle layout (overlay | list | fullscreen). Default `list`. */
+  readonly subtitleMode?: SubtitleDisplayMode;
+  /** Source-line count shown in fullscreen mode (a wrapped line counts as one). */
+  readonly subtitleLineCount?: number;
+  /**
+   * Dictionary lookup for the long-press word menu (翻译/示例). Injected as a
+   * function-port by App.tsx so this leaf never imports `@aurora/dictionary`.
+   */
+  readonly wordLookup?: WordLookup;
+  /** Vocabulary sink for the 收藏 action, injected the same way (Epic B). */
+  readonly wordFavorite?: WordFavorite;
+  /** Optional toast when a word is saved (收藏). */
+  readonly onFavorited?: (word: string) => void;
 }
 
 /**
@@ -81,15 +119,35 @@ export function VideoScreen({
   media,
   document,
   onCopyText,
+  subtitleMode,
+  subtitleLineCount,
+  wordLookup,
+  wordFavorite,
+  onFavorited,
 }: VideoScreenProps): React.JSX.Element {
   const videoRef = useRef<VideoRef | null>(null);
   const callbacksRef = useRef<NativeVideoCallbacks | null>(null);
   const [uri, setUri] = useState<string | null>(null);
   const [overlay, setOverlay] = useState<OverlayViewState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Kept in a ref so the control-bar handlers act on the current playhead
+  // Word-addressable subtitle view-state + its tap/long-press controller, pushed
+  // from the Node-tested SubtitleListPresenter / SubtitleWordActions. The current
+  // layout `mode` rides along on `listState.mode`.
+  const [listState, setListState] = useState<SubtitleListViewState | null>(null);
+  const [wordActions, setWordActions] = useState<SubtitleWordActions | null>(null);
+  const subtitleListRef = useRef<PlayerRuntime['subtitleList'] | null>(null);
+  // Transport view-state (play/pause · progress · time), pushed from the
+  // Node-tested `transport` controller — never computed in this view.
+  const [transport, setTransport] = useState<TransportState | null>(null);
+  // Fraction being previewed while the user drags the seek bar (null = not
+  // scrubbing, so the bar tracks live playback).
+  const [scrubFraction, setScrubFraction] = useState<number | null>(null);
+  // Kept in refs so the control-bar handlers act on the current playhead
   // without re-rendering on every position tick.
   const controlsRef = useRef<LearningControls | null>(null);
+  const transportRef = useRef<TransportControls | null>(null);
+  // Measured width of the seek track, so a touch x maps to a position fraction.
+  const barWidthRef = useRef(0);
 
   const surface = useMemo(
     () => surfaceFromRef(videoRef, setUri, callbacksRef),
@@ -98,9 +156,28 @@ export function VideoScreen({
 
   useEffect(() => {
     setError(null);
-    const runtime: PlayerRuntime = createPlayerRuntime({ surface, media, document });
+    const runtime: PlayerRuntime = createPlayerRuntime({
+      surface,
+      media,
+      document,
+      // Only pass provided keys — `exactOptionalPropertyTypes` rejects explicit
+      // `undefined` for these optional fields.
+      ...(subtitleMode !== undefined && { subtitleMode }),
+      ...(subtitleLineCount !== undefined && { subtitleLineCount }),
+      ...(wordLookup !== undefined && { wordLookup }),
+      ...(wordFavorite !== undefined && { wordFavorite }),
+    });
     controlsRef.current = runtime.controls;
+    transportRef.current = runtime.transport;
+    subtitleListRef.current = runtime.subtitleList;
+    setWordActions(runtime.wordActions);
     const off = runtime.presenter.onChange(setOverlay);
+    const offTransport = runtime.transport.subscribe(setTransport);
+    setTransport(runtime.transport.state());
+    // Seed + follow the subtitle-list view-state (connect() doesn't emit an
+    // initial snapshot, so prime it from the current state).
+    const offList = runtime.subtitleList.onChange(setListState);
+    setListState(runtime.subtitleList.state);
     // Drive playback from the player's own lifecycle rather than blindly calling
     // play() after open(): auto-play only once the media is actually `ready`, and
     // surface any load/decode error instead of letting it crash as an illegal
@@ -115,11 +192,32 @@ export function VideoScreen({
     void runtime.open();
     return () => {
       off();
+      offTransport();
+      offList();
       offEvents();
       controlsRef.current = null;
+      transportRef.current = null;
+      subtitleListRef.current = null;
+      setWordActions(null);
       runtime.dispose();
     };
-  }, [surface, media, document]);
+  }, [
+    surface,
+    media,
+    document,
+    subtitleMode,
+    subtitleLineCount,
+    wordLookup,
+    wordFavorite,
+  ]);
+
+  // Cycle overlay → list → fullscreen → overlay. The presenter owns the mode;
+  // this only nudges it, then re-renders from the emitted view-state.
+  const cycleMode = (): void => {
+    const current = listState?.mode ?? subtitleMode ?? 'list';
+    const next = MODE_CYCLE[(MODE_CYCLE.indexOf(current) + 1) % MODE_CYCLE.length]!;
+    subtitleListRef.current?.setMode(next);
+  };
 
   const copyActiveLine = (): void => {
     const text = controlsRef.current?.copyActiveLineText({ withTranslation: true });
@@ -128,51 +226,167 @@ export function VideoScreen({
     }
   };
 
+  // Drag-to-seek: convert a touch x on the track into a [0,1] fraction, preview
+  // it live while dragging, and commit an absolute seek on release. Uses the
+  // built-in PanResponder so no slider dependency is needed. All the clamping /
+  // position math lives in the tested `transport` controller.
+  const seekPan = useMemo(
+    () => {
+      const fractionAt = (x: number): number => {
+        const width = barWidthRef.current;
+        if (width <= 0) return 0;
+        return Math.min(1, Math.max(0, x / width));
+      };
+      const commit = (x: number): void => {
+        const t = transportRef.current;
+        const state = t?.state();
+        if (t && state && state.durationMs > 0) {
+          t.seekTo(fractionAt(x) * state.durationMs);
+        }
+        setScrubFraction(null);
+      };
+      return PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: (e) =>
+          setScrubFraction(fractionAt(e.nativeEvent.locationX)),
+        onPanResponderMove: (e) =>
+          setScrubFraction(fractionAt(e.nativeEvent.locationX)),
+        onPanResponderRelease: (e) => commit(e.nativeEvent.locationX),
+        onPanResponderTerminate: (e) => commit(e.nativeEvent.locationX),
+      });
+    },
+    [],
+  );
+
+  const onBarLayout = (e: LayoutChangeEvent): void => {
+    barWidthRef.current = e.nativeEvent.layout.width;
+  };
+
+  // While scrubbing, show the dragged fraction; otherwise follow live playback.
+  const shownProgress = scrubFraction ?? transport?.progress ?? 0;
+  const shownPositionMs =
+    scrubFraction !== null && transport
+      ? scrubFraction * transport.durationMs
+      : (transport?.positionMs ?? 0);
+
   const cb = callbacksRef.current;
+  const mode: SubtitleDisplayMode = listState?.mode ?? subtitleMode ?? 'list';
+
+  // The video element — identical in every layout; only its wrapper changes.
+  const videoEl = uri !== null && (
+    <Video
+      ref={videoRef}
+      source={{ uri }}
+      style={styles.video}
+      // Emulators frequently render nothing (black) with the default
+      // SurfaceView while audio/progress run fine; TextureView composites
+      // reliably inside the RN view tree. `contain` keeps the aspect ratio.
+      viewType={ViewType.TEXTURE}
+      resizeMode="contain"
+      onLoad={(e) => cb?.onLoad({ duration: e.duration, currentTime: e.currentTime })}
+      onProgress={(e) => cb?.onProgress({ currentTime: e.currentTime })}
+      onSeek={(e) => cb?.onSeek({ currentTime: e.currentTime, seekTime: e.seekTime })}
+      onEnd={() => cb?.onEnd()}
+      onError={(e) => cb?.onError({ error: { errorString: String(e.error?.errorString) } })}
+    />
+  );
+
+  // ⤢ cycles the subtitle layout; the label shows the current mode.
+  const modeToggle = (
+    <TouchableOpacity style={styles.modeToggle} onPress={cycleMode}>
+      <Text style={styles.modeToggleLabel}>⤢ {MODE_LABEL[mode]}</Text>
+    </TouchableOpacity>
+  );
+
+  // The word-addressable transcript (list) / windowed strip (fullscreen). Painted
+  // only when its controller is wired; overlay mode uses <SubtitleOverlay>.
+  const subtitleListEl =
+    wordActions !== null && listState !== null ? (
+      <SubtitleList
+        state={listState}
+        actions={wordActions}
+        {...(onFavorited !== undefined && { onFavorited })}
+      />
+    ) : null;
+
+  const transportBar = (
+    // Transport bar — play/pause · seek · time. Pure view: it renders the
+    // `transport` snapshot and forwards taps/drags to the Node-tested controller.
+    <View style={styles.transportBar} pointerEvents="box-none">
+      <TouchableOpacity
+        style={styles.playButton}
+        disabled={transport?.canPlay !== true}
+        onPress={() => transportRef.current?.togglePlay()}
+      >
+        <Text style={styles.playLabel}>
+          {transport?.playing === true ? '❚❚' : '►'}
+        </Text>
+      </TouchableOpacity>
+      <Text style={styles.timeLabel}>{formatClock(shownPositionMs)}</Text>
+      <View style={styles.seekTrack} onLayout={onBarLayout} {...seekPan.panHandlers}>
+        <View style={[styles.seekFill, { width: `${shownProgress * 100}%` }]} />
+        <View style={[styles.seekThumb, { left: `${shownProgress * 100}%` }]} />
+      </View>
+      <Text style={styles.timeLabel}>{formatClock(transport?.durationMs ?? 0)}</Text>
+    </View>
+  );
+
+  const controlBar = (
+    // Epic A learning gestures — thin buttons that only call `runtime.controls`.
+    <View style={styles.controlBar} pointerEvents="box-none">
+      <TouchableOpacity
+        style={styles.controlButton}
+        onPress={() => controlsRef.current?.stepWord('prev')}
+      >
+        <Text style={styles.controlLabel}>◀ 词</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.controlButton} onPress={copyActiveLine}>
+        <Text style={styles.controlLabel}>复制</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.controlButton}
+        onPress={() => controlsRef.current?.stepWord('next')}
+      >
+        <Text style={styles.controlLabel}>词 ▶</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const errorBanner = error !== null && (
+    <View style={styles.errorBanner} pointerEvents="none">
+      <Text style={styles.errorText}>Playback error: {error}</Text>
+    </View>
+  );
+
+  // Portrait list (用户要求：视频最上方 + 下面一排排字幕列表): video sits in a
+  // 16:9 box at the top with the bars floating over it, the transcript fills the
+  // rest below. Overlay / fullscreen keep the video full-bleed with subtitles
+  // floating over the picture.
+  if (mode === 'list') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.videoBoxList}>
+          {videoEl}
+          {modeToggle}
+          {transportBar}
+          {controlBar}
+          {errorBanner}
+        </View>
+        {subtitleListEl}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {uri !== null && (
-        <Video
-          ref={videoRef}
-          source={{ uri }}
-          style={styles.video}
-          // Emulators frequently render nothing (black) with the default
-          // SurfaceView while audio/progress run fine; TextureView composites
-          // reliably inside the RN view tree. `contain` keeps the aspect ratio.
-          viewType={ViewType.TEXTURE}
-          resizeMode="contain"
-          onLoad={(e) => cb?.onLoad({ duration: e.duration, currentTime: e.currentTime })}
-          onProgress={(e) => cb?.onProgress({ currentTime: e.currentTime })}
-          onSeek={(e) => cb?.onSeek({ currentTime: e.currentTime, seekTime: e.seekTime })}
-          onEnd={() => cb?.onEnd()}
-          onError={(e) => cb?.onError({ error: { errorString: String(e.error?.errorString) } })}
-        />
-      )}
-      <SubtitleOverlay state={overlay} />
-      {/* Epic A learning gestures — thin buttons that only call
-          `runtime.controls`; all logic lives in the Node-tested core. */}
-      <View style={styles.controlBar} pointerEvents="box-none">
-        <TouchableOpacity
-          style={styles.controlButton}
-          onPress={() => controlsRef.current?.stepWord('prev')}
-        >
-          <Text style={styles.controlLabel}>◀ 词</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton} onPress={copyActiveLine}>
-          <Text style={styles.controlLabel}>复制</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.controlButton}
-          onPress={() => controlsRef.current?.stepWord('next')}
-        >
-          <Text style={styles.controlLabel}>词 ▶</Text>
-        </TouchableOpacity>
-      </View>
-      {error !== null && (
-        <View style={styles.errorBanner} pointerEvents="none">
-          <Text style={styles.errorText}>Playback error: {error}</Text>
-        </View>
-      )}
+      {videoEl}
+      {mode === 'overlay' && <SubtitleOverlay state={overlay} />}
+      {mode === 'fullscreen' && subtitleListEl}
+      {modeToggle}
+      {transportBar}
+      {controlBar}
+      {errorBanner}
     </View>
   );
 }
@@ -185,6 +399,26 @@ const styles = StyleSheet.create({
   // at height 0 (audio/progress run, but nothing is drawn). `flex: 1` gives it a
   // definite measured size from the parent instead.
   video: { flex: 1 },
+  // Portrait-list layout: a fixed 16:9 video box at the top; the bars are
+  // absolutely positioned inside it so they float over the picture, and the
+  // transcript below gets all remaining height.
+  videoBoxList: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: 'black',
+    position: 'relative',
+  },
+  // Small pill (top-right) to cycle subtitle layout modes.
+  modeToggle: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  modeToggleLabel: { color: 'white', fontSize: 13 },
   errorBanner: {
     position: 'absolute',
     left: 0,
@@ -194,6 +428,55 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(180,0,0,0.85)',
   },
   errorText: { color: 'white', fontSize: 14, textAlign: 'center' },
+  transportBar: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 76,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  playButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  playLabel: { color: 'white', fontSize: 16 },
+  timeLabel: {
+    color: 'white',
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
+    minWidth: 44,
+    textAlign: 'center',
+  },
+  seekTrack: {
+    flex: 1,
+    height: 24,
+    justifyContent: 'center',
+  },
+  seekFill: {
+    position: 'absolute',
+    left: 0,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#4da3ff',
+  },
+  seekThumb: {
+    position: 'absolute',
+    width: 14,
+    height: 14,
+    marginLeft: -7,
+    borderRadius: 7,
+    backgroundColor: 'white',
+  },
   controlBar: {
     position: 'absolute',
     left: 0,

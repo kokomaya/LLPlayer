@@ -39,6 +39,9 @@ const readVirtualStore = () => {
 
 const config = getDefaultConfig(projectRoot);
 
+// eslint-disable-next-line no-console
+console.error(`[metro-config] custom config LOADED (store=${readVirtualStore()})`);
+
 config.watchFolders = [workspaceRoot, readVirtualStore()];
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
@@ -70,7 +73,58 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
       throw originalError;
     }
   }
-  return resolve(context, moduleName, platform);
+  // Hand-resolve the expo-file-system subtree BEFORE Metro's own resolver runs.
+  //
+  // Why: expo-file-system uses a package `exports` map, so Metro resolves its
+  // subpaths (`.`, `/legacy`) to the package's REAL location in the drive-root
+  // pnpm store (`D:/ps/...`). That path is outside the project and shares only
+  // the drive root with it, and Metro's Windows path-relativization mangles it
+  // into a bogus `./ps/...` / `../../ps/...` specifier and fails. Packages that
+  // resolve via `main` (react-native-video) are unaffected because Metro keeps
+  // their PROJECT-LOCAL symlink path (`node_modules/react-native-video/...`).
+  //
+  // Fix: resolve with Node to get the real file, then rewrite it back onto this
+  // app's own symlink (`<projectRoot>/node_modules/expo-file-system/...`). The
+  // symlink points at the same store file, but the path we hand Metro now lives
+  // inside the project, so it is handled exactly like react-native-video.
+  const nodeResolveFrom = (name) => {
+    const origin = context.originModulePath
+      ? path.dirname(context.originModulePath)
+      : projectRoot;
+    return require.resolve(name, { paths: [origin, projectRoot, workspaceRoot] });
+  };
+  const toProjectLocal = (real) => {
+    const marker = `${path.sep}node_modules${path.sep}expo-file-system${path.sep}`;
+    const idx = real.lastIndexOf(marker);
+    if (idx === -1) {
+      return real;
+    }
+    const subpath = real.slice(idx + marker.length);
+    return path.join(projectRoot, 'node_modules', 'expo-file-system', subpath);
+  };
+  if (moduleName === 'expo-file-system' || moduleName.startsWith('expo-file-system/')) {
+    try {
+      return { type: 'sourceFile', filePath: toProjectLocal(nodeResolveFrom(moduleName)) };
+    } catch {
+      // fall through to Metro's resolver so its error surfaces
+    }
+  }
+  // General safety net for any OTHER bare specifier that Metro can't resolve
+  // (e.g. expo-file-system's transitive exports-map deps): try Metro first,
+  // then Node. Runs ONLY on failure, so packages that resolve today
+  // (react-native-video, @aurora/*) are untouched.
+  try {
+    return resolve(context, moduleName, platform);
+  } catch (metroError) {
+    if (moduleName.startsWith('.') || moduleName.startsWith('/')) {
+      throw metroError;
+    }
+    try {
+      return { type: 'sourceFile', filePath: nodeResolveFrom(moduleName) };
+    } catch {
+      throw metroError;
+    }
+  }
 };
 
 module.exports = config;

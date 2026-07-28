@@ -71,6 +71,9 @@ importers:
       '@aurora/presentation':
         specifier: workspace:*
         version: link:../../packages/presentation
+      '@aurora/privacy':
+        specifier: workspace:*
+        version: link:../../packages/privacy
       '@aurora/subtitle':
         specifier: workspace:*
         version: link:../../packages/subtitle
@@ -80,6 +83,9 @@ importers:
       expo:
         specifier: ^57.0.8
         version: 57.0.8(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(react-native@0.86.0(@babel/core@7.29.7)(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)(typescript@5.7.2)
+      expo-file-system:
+        specifier: ~57.0.1
+        version: 57.0.1(expo@57.0.8)(react-native@0.86.0(@babel/core@7.29.7)(@types/react@19.2.17)(react@19.2.3))
       react:
         specifier: 19.2.3
         version: 19.2.3

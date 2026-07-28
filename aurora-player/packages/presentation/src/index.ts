@@ -11,3 +11,22 @@ export {
   type OverlayListener,
   type OverlayViewState,
 } from './subtitle-overlay-presenter.js';
+
+// Word-addressable multi-mode subtitle surface (list / fullscreen), shared by
+// mobile and desktop. Pure builders + a position-driven presenter; the platform
+// binding maps its own gestures (tap/click → seek, long-press/right-click →
+// menu) onto the same view-state.
+export {
+  buildSubtitleLineVMs,
+  computeLineWindow,
+  type LineWindow,
+  type SubtitleDisplayMode,
+  type SubtitleLineVM,
+  type SubtitleWordVM,
+} from './subtitle-view.js';
+export {
+  SubtitleListPresenter,
+  type SubtitleListListener,
+  type SubtitleListOptions,
+  type SubtitleListViewState,
+} from './subtitle-list-presenter.js';

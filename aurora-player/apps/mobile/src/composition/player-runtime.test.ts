@@ -75,3 +75,69 @@ describe('createPlayerRuntime', () => {
     expect(at6000).toMatchObject({ line: null, word: null });
   });
 });
+
+describe('createPlayerRuntime · subtitle list + word actions', () => {
+  it('drives the word-addressable list from the same bus and honours mode/count', () => {
+    const surface = new FakeNativeVideoSurface({ durationSec: 10 });
+    const runtime = createPlayerRuntime({
+      surface,
+      document: DOC,
+      media: MEDIA,
+      subtitleMode: 'fullscreen',
+      subtitleLineCount: 1,
+      now: () => 0,
+    });
+
+    expect(runtime.subtitleList.lines.map((l) => l.id)).toEqual(['1', '2']);
+    expect(runtime.subtitleList.state.mode).toBe('fullscreen');
+
+    void runtime.open();
+    void runtime.player.play();
+    surface.advance(2000); // inside line 1, word "Hello"
+    expect(runtime.subtitleList.state.activeLineIndex).toBe(0);
+    expect(runtime.subtitleList.state.visibleRange).toEqual({ start: 0, end: 1 });
+
+    runtime.dispose();
+  });
+
+  it('seeks the player to a tapped word and hides menu actions when no ports are wired', () => {
+    const surface = new FakeNativeVideoSurface({ durationSec: 10 });
+    const runtime = createPlayerRuntime({ surface, document: DOC, media: MEDIA, now: () => 0 });
+
+    expect(runtime.wordActions.canTranslate).toBe(false);
+    expect(runtime.wordActions.canFavorite).toBe(false);
+
+    const word = runtime.subtitleList.lines[0]!.words[1]!; // "world" @ 3000
+    void runtime.open();
+    runtime.wordActions.seekToWord(word);
+    expect(runtime.player.position()).toBe(word.targetMs);
+
+    runtime.dispose();
+  });
+
+  it('exposes injected dictionary/vocabulary ports through the word menu', async () => {
+    const surface = new FakeNativeVideoSurface({ durationSec: 10 });
+    const saved: { word: string; example?: string }[] = [];
+    const runtime = createPlayerRuntime({
+      surface,
+      document: DOC,
+      media: MEDIA,
+      now: () => 0,
+      wordLookup: async (w) => ({ headword: w, senses: [{ definition: 'x', examples: [`${w}!`] }] }),
+      wordFavorite: async (input) => {
+        saved.push(input);
+      },
+    });
+
+    expect(runtime.wordActions.canTranslate).toBe(true);
+    expect(runtime.wordActions.canFavorite).toBe(true);
+
+    const word = runtime.subtitleList.lines[0]!.words[0]!; // "Hello"
+    const menu = runtime.wordActions.openMenu(word);
+    expect(await menu.examples()).toEqual(['Hello!']);
+    expect(await menu.favorite({ lineText: 'Hello world' })).toBe(true);
+    expect(saved).toEqual([{ word: 'Hello', example: 'Hello world' }]);
+
+    runtime.dispose();
+  });
+});

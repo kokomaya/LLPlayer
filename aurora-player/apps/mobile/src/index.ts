@@ -21,6 +21,16 @@ export {
   type LearningControls,
 } from './composition/learning-controls.js';
 
+// Epic A transport bar brain: play/pause · seek · progress · time, derived from
+// the IPlayer port so the device chrome stays a thin control layer. Also reachable
+// via `runtime.transport`. `formatClock` renders the time labels.
+export {
+  createTransportControls,
+  formatClock,
+  type TransportControls,
+  type TransportState,
+} from './composition/transport-controls.js';
+
 // Epic A/C source-selection consent gate: decide whether a local/URL/package
 // pick may play, and what `network` consent is missing if not. Reuses the
 // canonical privacy gate — no logic re-implemented in the UI.
@@ -56,3 +66,44 @@ export {
   type OverlayListener,
   type OverlayViewState,
 } from '@aurora/presentation';
+
+// Word-addressable subtitle surface (portrait list + fullscreen) presenter and
+// its view-state, re-exported from the shared core. Also reachable via
+// `runtime.subtitleList`. Mobile paints tap/long-press; desktop click/right-click.
+export {
+  SubtitleListPresenter,
+  buildSubtitleLineVMs,
+  computeLineWindow,
+  type LineWindow,
+  type SubtitleDisplayMode,
+  type SubtitleLineVM,
+  type SubtitleListListener,
+  type SubtitleListOptions,
+  type SubtitleListViewState,
+  type SubtitleWordVM,
+} from '@aurora/presentation';
+
+// Epic A/B word interactions: tap/click a subtitle word → seek; long-press/
+// right-click → menu (翻译/收藏/示例). Dictionary + vocabulary are injected as
+// function-ports, so this core never imports `@aurora/dictionary`/`learning`.
+// Also reachable via `runtime.wordActions`.
+export {
+  createSubtitleWordActions,
+  type FavoriteContext,
+  type SubtitleWordActions,
+  type WordFavorite,
+  type WordGloss,
+  type WordLookup,
+  type WordMenu,
+  type WordSense,
+} from './composition/subtitle-word-actions.js';
+
+// On-device demo helpers: given the files copied next to a real clip, pick the
+// richest subtitle track (word-level first) so the A4 tap-to-seek features get
+// exercised. Pure logic — the CI-excluded `App.tsx` supplies the filenames.
+export {
+  SUBTITLE_EXTENSIONS,
+  isWordLevelSubtitle,
+  pickBestSubtitle,
+  subtitleCandidates,
+} from './composition/demo-media.js';

@@ -100,6 +100,16 @@ describe('createRecentSources', () => {
     expect(list.map((s) => s.uri)).toEqual(['b']);
   });
 
+  it('clear forgets everything and persists the empty list', async () => {
+    const { store, peek } = makeStore([src('a', { favorite: true }), src('b')]);
+    const recent = createRecentSources({ store, now: makeClock() });
+    const list = await recent.clear();
+    expect(list).toEqual([]);
+    expect(peek()).toEqual([]); // persisted, so a reload stays empty
+    expect(await recent.list()).toEqual([]);
+    expect(await recent.favorites()).toEqual([]);
+  });
+
   it('list/favorites read straight from the store (survive a reload)', async () => {
     const { store } = makeStore();
     const recent = createRecentSources({ store, now: makeClock() });

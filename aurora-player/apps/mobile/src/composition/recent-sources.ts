@@ -73,6 +73,8 @@ export interface RecentSources {
   toggleFavorite(uri: string): Promise<readonly RecentSource[]>;
   /** Forget `uri` entirely. */
   remove(uri: string): Promise<readonly RecentSource[]>;
+  /** Forget every remembered source (history + favorites) — always returns []. */
+  clear(): Promise<readonly RecentSource[]>;
 }
 
 /**
@@ -110,5 +112,6 @@ export const createRecentSources = (deps: RecentSourcesDeps): RecentSources => {
         mapRecent(list, uri, (s) => ({ ...s, favorite: !s.favorite })),
       ),
     remove: (uri) => mutate((list) => list.filter((s) => s.uri !== uri)),
+    clear: () => mutate(() => []),
   };
 };

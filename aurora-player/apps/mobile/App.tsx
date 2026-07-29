@@ -7,17 +7,29 @@ import {
   withConsent,
   type ConsentRecord,
   type ConsentState,
+  type MediaPackage,
 } from '@aurora/domain';
 import { VideoScreen } from './src/ui/VideoScreen';
 import { SourceScreen } from './src/ui/SourceScreen';
+import { MarketScreen } from './src/ui/MarketScreen';
+import { SettingsScreen } from './src/ui/SettingsScreen';
+import { BottomTabBar, type TabKey } from './src/ui/BottomTabBar';
 import {
+  DEFAULT_PLAYER_PREFS,
+  createMarketplaceControls,
+  createPlayerPreferences,
   createRecentSources,
+  createSeededCatalog,
   decidePlayback,
   parseUrlSource,
   pickBestSubtitle,
+  type PlayerPreferences,
+  type PlayerPrefsData,
+  type PlayerPrefsStore,
   type RecentSource,
   type RecentSources,
   type RecentSourcesStore,
+  type SubtitleDisplayMode,
   type WordExternalLookup,
   type WordFavorite,
 } from './src/index';
@@ -67,6 +79,77 @@ const EMPTY_DOC: SubtitleDocument = {
   meta: { format: 'none' },
   hasWordTimings: false,
 };
+
+// --- Online subtitled demo (带字幕的 URL) -----------------------------------
+//
+// A bare typed URL has no subtitle to pair with (它只带 video.uri), so it plays
+// silent-of-captions. This shortcut proves the "带字幕的 URL" path end to end: we
+// stream an MP4 AND fetch+parse its sibling WebVTT so playback shows REAL, timing-
+// matched subtitles. It's a tiny CC-licensed MDN sample (~0.8 MB, cues line up
+// with the picture) — the exact pair apps/mobile/scripts/fetch-demo-media.ps1
+// stages. Remote, so it flows through the same `network` consent gate.
+const ONLINE_SUBTITLE_DEMO = {
+  title: '在线字幕示例 (MDN)',
+  videoUri:
+    'https://raw.githubusercontent.com/mdn/learning-area/main/html/multimedia-and-embedding/tasks/media-embed/media/video.mp4',
+  subtitleUri:
+    'https://raw.githubusercontent.com/mdn/learning-area/main/html/multimedia-and-embedding/tasks/media-embed/media/subtitles_en.vtt',
+} as const;
+
+// Fetch + parse an external subtitle track with the real @aurora/subtitle
+// registry (same parser the CLI uses). Any failure (offline, 404, unparsable)
+// degrades to an empty document so the video still plays. `fetch` is the device
+// runtime's own global; the filename tail only hints the parser at the format.
+const fetchSubtitleDoc = async (uri: string): Promise<SubtitleDocument> => {
+  try {
+    const res = await fetch(uri);
+    if (!res.ok) {
+      return EMPTY_DOC;
+    }
+    const content = await res.text();
+    const filename = uri.split(/[?#]/)[0]?.split('/').pop() ?? 'subtitle.vtt';
+    const parsed = registry.parse({ content, filename });
+    return parsed.ok ? parsed.value : EMPTY_DOC;
+  } catch {
+    return EMPTY_DOC;
+  }
+};
+
+// --- Media marketplace (Epic C · 本地内存 demo 后端) -------------------------
+//
+// Two public, license-clear sample sources seeded into an in-memory catalog so
+// the market screen browses without an HTTP server. Each carries only a video
+// URI + a subtitle-track REF + browse metadata (no bytes, PII or credentials —
+// rule ①.E), passing `validateMediaPackage`. A real deployment swaps in an
+// `HttpCatalogBackend` at this composition root with no UI change (next_task ③).
+// NOTE: market playback now pairs the subtitle track's `uri` into playback —
+// when a package declares one (e.g. a server-produced `.whisperx.json`), the
+// player fetches + parses it (see playFromMarket). These demo packages declare
+// no subtitle `uri`, so they still play with an empty document; a real HTTP
+// catalog package carrying `subtitles[].uri` plays with real subtitles.
+const DEMO_PACKAGES: readonly MediaPackage[] = [
+  {
+    id: 'demo-bbb',
+    video: {
+      uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      durationMs: 596_000,
+    },
+    subtitles: [{ language: 'en', format: 'srt', hasWordTimings: false }],
+    meta: { title: 'Big Buck Bunny', sourceLang: 'en', learningLang: 'zh', durationMs: 596_000 },
+  },
+  {
+    id: 'demo-mux-hls',
+    video: {
+      uri: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+      durationMs: 888_000,
+    },
+    subtitles: [{ language: 'en', format: 'vtt', hasWordTimings: false }],
+    meta: { title: 'Mux Test Stream (HLS)', sourceLang: 'en', learningLang: 'zh', durationMs: 888_000 },
+  },
+];
+
+// Built once at the composition root; stable across renders (no fs needed).
+const marketplace = createMarketplaceControls(createSeededCatalog(DEMO_PACKAGES));
 
 // Session-only favourites — a real build persists via @aurora/learning. 翻译 no
 // longer uses a hardcoded gloss table: long-press → the device's installed
@@ -167,6 +250,29 @@ const loadFileSystem = (): { fs: FunctionalFS | null; diag: string } => {
 
 const RECENT_FILE = 'recent-sources.json';
 const CONSENT_FILE = 'consent.json';
+const PREFS_FILE = 'player-prefs.json';
+
+/** Back the tested `PlayerPrefsStore` port with a JSON file in documents/. */
+const makePrefsStore = (fs: FunctionalFS): PlayerPrefsStore => {
+  const path = (fs.documentDirectory ?? '') + PREFS_FILE;
+  return {
+    load: async () => {
+      try {
+        const parsed = JSON.parse(await fs.readAsStringAsync(path));
+        return (parsed ?? {}) as Partial<PlayerPrefsData>;
+      } catch {
+        return {};
+      }
+    },
+    save: async (data) => {
+      try {
+        await fs.writeAsStringAsync(path, JSON.stringify(data));
+      } catch {
+        /* best-effort persistence; a write failure just loses the preference */
+      }
+    },
+  };
+};
 
 /** Back the tested `RecentSourcesStore` port with a JSON file in documents/. */
 const makeRecentStore = (fs: FunctionalFS): RecentSourcesStore => {
@@ -264,18 +370,23 @@ type Playback = { readonly media: MediaSource; readonly document: SubtitleDocume
 
 export default function App(): React.JSX.Element {
   const [ready, setReady] = useState(false);
-  const [view, setView] = useState<'home' | 'player'>('home');
+  const [view, setView] = useState<'home' | 'player' | 'market' | 'settings'>('home');
   const [playback, setPlayback] = useState<Playback | null>(null);
   const [deviceProbe, setDeviceProbe] = useState<DeviceProbe | null>(null);
   const [recentList, setRecentList] = useState<readonly RecentSource[]>([]);
   const [consent, setConsent] = useState<ConsentState>(emptyConsent());
+  const [prefs, setPrefs] = useState<PlayerPrefsData>(DEFAULT_PLAYER_PREFS);
   const [urlText, setUrlText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [pendingInput, setPendingInput] = useState<SourceInput | null>(null);
+  // Subtitle URL to pair with `pendingInput` once consent is granted (online
+  // subtitled demo); null for the bare-URL path which has no track.
+  const [pendingSubtitleUri, setPendingSubtitleUri] = useState<string | null>(null);
   const [consentPrompt, setConsentPrompt] = useState(false);
 
   const fsRef = useRef<FunctionalFS | null>(null);
   const recentRef = useRef<RecentSources | null>(null);
+  const prefsRef = useRef<PlayerPreferences | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -288,16 +399,19 @@ export default function App(): React.JSX.Element {
           store: makeRecentStore(fs),
           now: () => Date.now(),
         });
+        prefsRef.current = createPlayerPreferences({ store: makePrefsStore(fs) });
       }
-      const [probe, savedConsent, savedRecent] = await Promise.all([
+      const [probe, savedConsent, savedRecent, savedPrefs] = await Promise.all([
         loadDeviceDemo(fs, fallbackDoc),
         fs ? loadConsent(fs) : Promise.resolve(emptyConsent()),
         recentRef.current ? recentRef.current.list() : Promise.resolve([]),
+        prefsRef.current ? prefsRef.current.get() : Promise.resolve(DEFAULT_PLAYER_PREFS),
       ]);
       if (!alive) return;
       setDeviceProbe(probe);
       setConsent(savedConsent);
       setRecentList(savedRecent);
+      setPrefs(savedPrefs);
       setReady(true);
     })();
     return () => {
@@ -305,8 +419,16 @@ export default function App(): React.JSX.Element {
     };
   }, []);
 
-  const openSource = async (media: MediaSource, input: SourceInput): Promise<void> => {
-    setPlayback({ media, document: EMPTY_DOC });
+  const openSource = async (
+    media: MediaSource,
+    input: SourceInput,
+    subtitleUri?: string,
+  ): Promise<void> => {
+    // Pair a fetched subtitle track when one was supplied (online subtitled
+    // demo); a bare URL has none, so it plays with an empty document as before.
+    const document =
+      subtitleUri !== undefined ? await fetchSubtitleDoc(subtitleUri) : EMPTY_DOC;
+    setPlayback({ media, document });
     setView('player');
     if (input.kind === 'uri' && recentRef.current) {
       const title = input.title ?? input.uri;
@@ -314,14 +436,24 @@ export default function App(): React.JSX.Element {
     }
   };
 
-  const attemptPlay = (input: SourceInput, state: ConsentState): void => {
+  const attemptPlay = (input: SourceInput, state: ConsentState, subtitleUri?: string): void => {
     const decision = decidePlayback(input, state);
     if (!decision.ready) {
       setPendingInput(input);
+      setPendingSubtitleUri(subtitleUri ?? null);
       setConsentPrompt(true);
       return;
     }
-    void openSource(decision.media, input);
+    void openSource(decision.media, input, subtitleUri);
+  };
+
+  // Stream the online demo video AND its sibling WebVTT so it plays WITH real
+  // subtitles. Remote → routed through the same consent gate as any URL.
+  const playOnlineDemo = (): void => {
+    const parsed = parseUrlSource(ONLINE_SUBTITLE_DEMO.videoUri, ONLINE_SUBTITLE_DEMO.title);
+    if (parsed.ok) {
+      attemptPlay(parsed.input, consent, ONLINE_SUBTITLE_DEMO.subtitleUri);
+    }
   };
 
   const submitUrl = (): void => {
@@ -342,19 +474,29 @@ export default function App(): React.JSX.Element {
     }
   };
 
-  const grantConsent = async (): Promise<void> => {
-    const next = withConsent(consent, 'network', true, Date.now());
+  // Grant/revoke `network` consent, persist, and return the new state so callers
+  // can retry a gated action against the fresh value. Date.now() is the accepted
+  // device-shell clock (rule ①.C.13); the decision itself stays in the core gate.
+  const setNetworkConsent = (granted: boolean): ConsentState => {
+    const next = withConsent(consent, 'network', granted, Date.now());
     setConsent(next);
-    setConsentPrompt(false);
     if (fsRef.current) {
       void saveConsent(fsRef.current, next);
     }
+    return next;
+  };
+
+  const grantConsent = (): void => {
+    const next = setNetworkConsent(true);
+    setConsentPrompt(false);
     if (pendingInput) {
       const input = pendingInput;
+      const subUri = pendingSubtitleUri;
       setPendingInput(null);
+      setPendingSubtitleUri(null);
       const decision = decidePlayback(input, next);
       if (decision.ready) {
-        void openSource(decision.media, input);
+        void openSource(decision.media, input, subUri ?? undefined);
       }
     }
   };
@@ -362,6 +504,41 @@ export default function App(): React.JSX.Element {
   const dismissConsent = (): void => {
     setConsentPrompt(false);
     setPendingInput(null);
+    setPendingSubtitleUri(null);
+  };
+
+  // Play a marketplace-resolved source. When the package declared a subtitle
+  // `uri` (e.g. a server-produced `.whisperx.json`), fetch + parse it with the
+  // same registry the URL path uses; any failure degrades to an empty document
+  // so the video still plays. Network access already passed the market's
+  // `network` consent gate before we get here.
+  const playFromMarket = (m: MediaSource, subtitleUri?: string): void => {
+    if (subtitleUri === undefined) {
+      setPlayback({ media: m, document: EMPTY_DOC });
+      setView('player');
+      return;
+    }
+    void (async () => {
+      const document = await fetchSubtitleDoc(subtitleUri);
+      setPlayback({ media: m, document });
+      setView('player');
+    })();
+  };
+
+  const setSubtitleMode = async (mode: SubtitleDisplayMode): Promise<void> => {
+    setPrefs(
+      prefsRef.current
+        ? await prefsRef.current.setSubtitleMode(mode)
+        : { ...prefs, subtitleMode: mode },
+    );
+  };
+  const setSpeed = async (speed: number): Promise<void> => {
+    setPrefs(
+      prefsRef.current ? await prefsRef.current.setSpeed(speed) : { ...prefs, speed },
+    );
+  };
+  const clearHistory = async (): Promise<void> => {
+    setRecentList(recentRef.current ? await recentRef.current.clear() : []);
   };
 
   const renameRecent = async (s: RecentSource, title: string): Promise<void> => {
@@ -394,7 +571,8 @@ export default function App(): React.JSX.Element {
       <VideoScreen
         media={playback.media}
         document={playback.document}
-        subtitleMode="list"
+        subtitleMode={prefs.subtitleMode}
+        initialSpeed={prefs.speed}
         wordExternalLookup={wordExternalLookup}
         wordFavorite={demoFavorite}
         onBack={() => setView('home')}
@@ -413,26 +591,63 @@ export default function App(): React.JSX.Element {
         }
       : null;
 
+  // The three top-level destinations share a persistent bottom tab bar (市场/设置
+  // moved off the home header into the bar the user expects at the screen bottom).
+  // The full-screen player is handled by the early return above and shows no bar.
+  const body =
+    view === 'market' ? (
+      <MarketScreen
+        controls={marketplace}
+        consent={consent}
+        onGrantConsent={() => Promise.resolve(setNetworkConsent(true))}
+        onPlay={playFromMarket}
+      />
+    ) : view === 'settings' ? (
+      <SettingsScreen
+        consent={consent}
+        onSetNetworkConsent={(g) => {
+          setNetworkConsent(g);
+        }}
+        prefs={prefs}
+        onSetSubtitleMode={(m) => void setSubtitleMode(m)}
+        onSetSpeed={(n) => void setSpeed(n)}
+        historyCount={recentList.length}
+        onClearHistory={() => void clearHistory()}
+      />
+    ) : (
+      <SourceScreen
+        urlText={urlText}
+        onChangeUrl={setUrlText}
+        onSubmitUrl={submitUrl}
+        error={error}
+        recent={recentList}
+        onReplay={replay}
+        onRename={(s, title) => void renameRecent(s, title)}
+        onToggleFavorite={(s) => void toggleFavorite(s)}
+        onRemove={(s) => void removeRecent(s)}
+        deviceDemo={deviceDemo}
+        onlineDemo={{ title: ONLINE_SUBTITLE_DEMO.title, onPlay: playOnlineDemo }}
+        consentPrompt={consentPrompt}
+        onGrantConsent={grantConsent}
+        onDismissConsent={dismissConsent}
+      />
+    );
+
+  const activeTab: TabKey =
+    view === 'market' ? 'market' : view === 'settings' ? 'settings' : 'home';
+
   return (
-    <SourceScreen
-      urlText={urlText}
-      onChangeUrl={setUrlText}
-      onSubmitUrl={submitUrl}
-      error={error}
-      recent={recentList}
-      onReplay={replay}
-      onRename={(s, title) => void renameRecent(s, title)}
-      onToggleFavorite={(s) => void toggleFavorite(s)}
-      onRemove={(s) => void removeRecent(s)}
-      deviceDemo={deviceDemo}
-      consentPrompt={consentPrompt}
-      onGrantConsent={() => void grantConsent()}
-      onDismissConsent={dismissConsent}
-    />
+    <View style={styles.tabbedRoot}>
+      <View style={styles.tabbedBody}>{body}</View>
+      <BottomTabBar active={activeTab} onSelect={setView} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Tabbed shell: the active screen fills the space above a persistent tab bar.
+  tabbedRoot: { flex: 1, backgroundColor: '#0b0b0f' },
+  tabbedBody: { flex: 1 },
   container: {
     flex: 1,
     alignItems: 'center',

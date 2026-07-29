@@ -19,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import type { RecentSource } from '../index.js';
+import { ConsentSheet } from './ConsentSheet.js';
 
 export interface SourceScreenProps {
   /** Current URL text (controlled). */
@@ -36,6 +37,8 @@ export interface SourceScreenProps {
   readonly onRemove: (source: RecentSource) => void;
   /** When set, the on-device demo clip is playable from a shortcut button. */
   readonly deviceDemo?: { readonly title: string; readonly onPlay: () => void } | null;
+  /** When set, an online video+subtitle demo is playable from a shortcut button. */
+  readonly onlineDemo?: { readonly title: string; readonly onPlay: () => void } | null;
   /** When true, show the "allow network playback?" consent sheet. */
   readonly consentPrompt: boolean;
   readonly onGrantConsent: () => void;
@@ -54,6 +57,7 @@ export function SourceScreen({
   onToggleFavorite,
   onRemove,
   deviceDemo,
+  onlineDemo,
   consentPrompt,
   onGrantConsent,
   onDismissConsent,
@@ -89,6 +93,12 @@ export function SourceScreen({
       {deviceDemo != null && (
         <Pressable style={styles.demoBtn} onPress={deviceDemo.onPlay}>
           <Text style={styles.demoLabel}>▶ 播放本机示例：{deviceDemo.title}</Text>
+        </Pressable>
+      )}
+
+      {onlineDemo != null && (
+        <Pressable style={styles.demoBtn} onPress={onlineDemo.onPlay}>
+          <Text style={styles.demoLabel}>▶ {onlineDemo.title}（带字幕）</Text>
         </Pressable>
       )}
 
@@ -198,35 +208,6 @@ function RenameSheet({
   );
 }
 
-function ConsentSheet({
-  onGrant,
-  onDismiss,
-}: {
-  readonly onGrant: () => void;
-  readonly onDismiss: () => void;
-}): React.JSX.Element {
-  return (
-    <Modal transparent animationType="fade" onRequestClose={onDismiss}>
-      <Pressable style={styles.scrim} onPress={onDismiss}>
-        <Pressable style={styles.card} onPress={() => undefined}>
-          <Text style={styles.cardTitle}>允许联网播放？</Text>
-          <Text style={styles.cardBody}>
-            播放在线视频需要访问网络。仅在你允许后才会发起网络请求，此选择会被记住。
-          </Text>
-          <View style={styles.cardActions}>
-            <Pressable style={styles.cardBtn} onPress={onDismiss}>
-              <Text style={styles.cardBtnLabel}>取消</Text>
-            </Pressable>
-            <Pressable style={styles.cardBtn} onPress={onGrant}>
-              <Text style={styles.cardBtnLabel}>允许</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0b0b0f', padding: 20, paddingTop: 56, gap: 12 },
   title: { color: '#fff', fontSize: 26, fontWeight: '700' },
@@ -291,7 +272,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   cardTitle: { color: 'white', fontSize: 18, fontWeight: '700' },
-  cardBody: { color: '#c9c9c9', fontSize: 14, lineHeight: 20 },
   cardActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
   cardBtn: {
     paddingVertical: 8,

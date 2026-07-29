@@ -70,6 +70,45 @@ export {
   type PackagePlayback,
 } from './composition/marketplace-controls.js';
 
+// Epic C local/demo catalog backend: a seedable, in-memory ICatalogBackend so
+// the MarketScreen browses without an HTTP server. Same port contract as the
+// real backend — swap `HttpCatalogBackend` in at the composition root, no UI change.
+export { createSeededCatalog } from './composition/demo-catalog.js';
+
+// Epic ③ settings: default subtitle mode + default playback speed, normalized
+// and persisted through an injected store port. Pure logic; the device persists
+// via `expo-file-system`.
+export {
+  DEFAULT_PLAYER_PREFS,
+  MAX_SPEED,
+  MIN_SPEED,
+  createPlayerPreferences,
+  isSubtitleMode,
+  normalizePrefs,
+  normalizeSpeed,
+  type PlayerPreferences,
+  type PlayerPrefsData,
+  type PlayerPrefsDeps,
+  type PlayerPrefsStore,
+} from './composition/player-prefs.js';
+
+// Epic ② player gestures: map a vertical drag over a pane onto a 0..1 volume/
+// brightness level. Pure math (no react-native) so both drag gestures share one
+// clamped rule.
+export { nextLevel } from './composition/gesture-adjust.js';
+
+// Epic ③ settings · data-processing transparency: the static disclosure manifest
+// (capability ↔ uses ↔ purpose ↔ retention) + its summary, and the consent-state
+// query. Re-exported so the settings leaf reads them from this surface, never
+// importing `@aurora/privacy`/`@aurora/domain` directly.
+export {
+  DEFAULT_PROCESSING_MANIFEST,
+  disclosedUses,
+  type ProcessingManifest,
+  type ProcessingRecord,
+} from '@aurora/privacy';
+export { isGranted, type ConsentState, type DataUse } from '@aurora/domain';
+
 // Android IPlayer adapter core + the native `<Video>` seam it drives.
 export { ReactNativeVideoPlayer } from './adapters/react-native-video-player.js';
 export type {

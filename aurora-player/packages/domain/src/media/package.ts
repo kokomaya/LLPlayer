@@ -36,6 +36,13 @@ export interface SubtitleTrackRef {
   readonly format?: string;
   /** True when at least one line carries word-level timings. */
   readonly hasWordTimings: boolean;
+  /**
+   * Where the subtitle document is fetched from (a URL). Optional and additive:
+   * packages without it behave exactly as before; when present, a player can
+   * fetch and parse the track (e.g. a server-produced `.whisperx.json`) so
+   * marketplace packages play with real subtitles rather than an empty document.
+   */
+  readonly uri?: string;
 }
 
 /** What a learner browses and filters by in the marketplace. */

@@ -510,7 +510,9 @@ export function VideoScreen({
   const videoEl = uri !== null && (
     <Video
       ref={videoRef}
-      source={{ uri }}
+      // `media.headers` carries the catalog's Bearer token for a token-gated
+      // server video (set at the composition root); omitted for external URLs.
+      source={{ uri, ...(media.headers ? { headers: media.headers } : {}) }}
       style={styles.video}
       rate={rate}
       volume={volume}

@@ -16,6 +16,8 @@ import { SettingsScreen } from './src/ui/SettingsScreen';
 import { BottomTabBar, type TabKey } from './src/ui/BottomTabBar';
 import {
   DEFAULT_PLAYER_PREFS,
+  authHeaders,
+  createHttpCatalogBackend,
   createMarketplaceControls,
   createPlayerPreferences,
   createRecentSources,
@@ -23,6 +25,8 @@ import {
   decidePlayback,
   parseUrlSource,
   pickBestSubtitle,
+  resolveCatalogConfig,
+  type CatalogConfig,
   type PlayerPreferences,
   type PlayerPrefsData,
   type PlayerPrefsStore,
@@ -33,6 +37,12 @@ import {
   type WordExternalLookup,
   type WordFavorite,
 } from './src/index';
+
+// `__DEV__` is a React Native global: `true` in a debug (Metro) bundle, `false`
+// in a release bundle. It is the switch between the LOCAL dev server and the
+// deployed one below. (App.tsx is the CI-excluded device shell, so this ambient
+// declaration is for the editor/lint only.)
+declare const __DEV__: boolean;
 
 // --- Demo content -----------------------------------------------------------
 //
@@ -100,9 +110,12 @@ const ONLINE_SUBTITLE_DEMO = {
 // registry (same parser the CLI uses). Any failure (offline, 404, unparsable)
 // degrades to an empty document so the video still plays. `fetch` is the device
 // runtime's own global; the filename tail only hints the parser at the format.
-const fetchSubtitleDoc = async (uri: string): Promise<SubtitleDocument> => {
+const fetchSubtitleDoc = async (
+  uri: string,
+  headers?: Readonly<Record<string, string>>,
+): Promise<SubtitleDocument> => {
   try {
-    const res = await fetch(uri);
+    const res = await fetch(uri, headers ? { headers } : undefined);
     if (!res.ok) {
       return EMPTY_DOC;
     }
@@ -148,8 +161,54 @@ const DEMO_PACKAGES: readonly MediaPackage[] = [
   },
 ];
 
-// Built once at the composition root; stable across renders (no fs needed).
-const marketplace = createMarketplaceControls(createSeededCatalog(DEMO_PACKAGES));
+// --- Catalog backend selection (debug → local server · release → deployed) ---
+//
+// The DEBUG apk talks to a LOCAL aurora-player-server for hands-on testing; the
+// RELEASE apk talks to the deployed one (URL TBD —填真实地址后 release 才启用市场
+// 联网). `__DEV__` is the switch. Only the debug/debugOptimized manifests permit
+// cleartext http, so the local `http://…:8787` dev URL works there alone.
+//
+//   ⚠️ EMULATOR vs 真机:
+//   • Android emulator → host machine is reachable at `10.0.2.2` (below).
+//   • A REAL device on the same Wi-Fi must use the dev machine's LAN IP,
+//     e.g. `http://192.168.1.50:8787` — change DEV_CATALOG_URL accordingly.
+//
+// The token matches the server's `.env` AURORA_CATALOG_TOKEN. It is injected
+// ONLY here at the composition root (never baked into catalog data — rule ①.E)
+// and flows to three places: the backend's Bearer calls, the video
+// `source.headers`, and the subtitle fetch (all via `authHeaders`).
+const DEV_CATALOG_URL = 'http://10.0.2.2:8787';
+const DEV_CATALOG_TOKEN = 'dev-local-token';
+const RELEASE_CATALOG_URL = ''; // TODO: 部署后填入 https://… 真实服务器地址
+const RELEASE_CATALOG_TOKEN = ''; // TODO: 部署后注入生产 token
+
+const catalogConfig: CatalogConfig | null = resolveCatalogConfig(
+  __DEV__
+    ? { enabled: true, baseUrl: DEV_CATALOG_URL, token: DEV_CATALOG_TOKEN }
+    : {
+        enabled: RELEASE_CATALOG_URL !== '',
+        baseUrl: RELEASE_CATALOG_URL,
+        token: RELEASE_CATALOG_TOKEN,
+      },
+);
+
+// Built once at the composition root; stable across renders (no fs needed). Live
+// HTTP backend when a config resolved (debug/deployed), else the offline demo
+// catalog — same ICatalogBackend port, so the market screen is unchanged (LSP).
+const marketplace = createMarketplaceControls(
+  catalogConfig
+    ? createHttpCatalogBackend(catalogConfig)
+    : createSeededCatalog(DEMO_PACKAGES),
+);
+
+// The Bearer headers the device must attach when fetching bytes FROM the catalog
+// server (video + subtitles). Only server-origin URIs get them — an external CDN
+// video in a package (or a demo source) must NOT receive our token. `undefined`
+// when running the offline demo catalog.
+const catalogHeaders = (uri: string): Readonly<Record<string, string>> | undefined =>
+  catalogConfig && uri.startsWith(catalogConfig.baseUrl)
+    ? authHeaders(catalogConfig.token)
+    : undefined;
 
 // Session-only favourites — a real build persists via @aurora/learning. 翻译 no
 // longer uses a hardcoded gloss table: long-press → the device's installed
@@ -513,14 +572,22 @@ export default function App(): React.JSX.Element {
   // so the video still plays. Network access already passed the market's
   // `network` consent gate before we get here.
   const playFromMarket = (m: MediaSource, subtitleUri?: string): void => {
+    // Attach the catalog's Bearer token to a server-origin video so the
+    // token-gated /media/:id/video byte fetch is authorized (external URLs get
+    // no header — see catalogHeaders). The streaming adapter forwards
+    // `media.headers` to react-native-video's `source.headers`.
+    const videoHeaders = catalogHeaders(m.uri);
+    const media: MediaSource = videoHeaders ? { ...m, headers: videoHeaders } : m;
     if (subtitleUri === undefined) {
-      setPlayback({ media: m, document: EMPTY_DOC });
+      setPlayback({ media, document: EMPTY_DOC });
       setView('player');
       return;
     }
     void (async () => {
-      const document = await fetchSubtitleDoc(subtitleUri);
-      setPlayback({ media: m, document });
+      // The subtitle track lives on the same gated server → same Bearer header,
+      // enabling the word-timed `.whisperx.json` fetch that powers 按词快进快退.
+      const document = await fetchSubtitleDoc(subtitleUri, catalogHeaders(subtitleUri));
+      setPlayback({ media, document });
       setView('player');
     })();
   };

@@ -38,6 +38,15 @@ export interface MediaSource {
   /** Total length if known before opening; the FakePlayer treats it as truth. */
   readonly durationMs?: number;
   readonly tracks?: readonly TrackInfo[];
+  /**
+   * Extra HTTP headers a networked player must send when fetching {@link uri}
+   * (e.g. `Authorization: Bearer …` for a token-gated catalog server). Optional
+   * and platform-agnostic: local sources and the {@link FakePlayer} ignore it; a
+   * streaming adapter (react-native-video's `source.headers`) applies it. Set at
+   * the composition root — never baked into a package (rule ①.E: no credentials
+   * in catalog data).
+   */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 /**

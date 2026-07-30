@@ -75,6 +75,23 @@ export {
 // real backend — swap `HttpCatalogBackend` in at the composition root, no UI change.
 export { createSeededCatalog } from './composition/demo-catalog.js';
 
+// Epic C live catalog backend: the real HTTP ICatalogBackend (debug → local
+// aurora-player-server, release → deployed). Bearer-authenticates every call and
+// re-hosts the server's baked-in media URIs onto a device-reachable base URL.
+// `authHeaders` is the SAME token the shell attaches to the video source +
+// subtitle fetch; `resolveCatalogConfig` decides HTTP-vs-demo at the root.
+export {
+  authHeaders,
+  createHttpCatalogBackend,
+  rehostMediaUri,
+  type HttpCatalogDeps,
+} from './composition/http-catalog.js';
+export {
+  resolveCatalogConfig,
+  type CatalogConfig,
+  type CatalogConfigInput,
+} from './composition/catalog-config.js';
+
 // Epic ③ settings: default subtitle mode + default playback speed, normalized
 // and persisted through an injected store port. Pure logic; the device persists
 // via `expo-file-system`.
